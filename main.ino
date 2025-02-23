@@ -1304,14 +1304,17 @@ void setup() {
   Serial.begin(115200);
   delay(100);
 
+  // Inicijalizacija watchdoga
   esp_task_wdt_init(&wdt_config);
   esp_task_wdt_add(NULL);
 
+  // Inicijalizacija SPIFFS-a
   if (!SPIFFS.begin(true)) {
     if (DEBUG) Serial.println("SPIFFS failed to initialize");
     return;
   }
 
+  // Učitavanje konfiguracije ili postavljanje zadanih vrijednosti
   if (!loadConfig()) {
     if (DEBUG) Serial.println("Config not found, setting defaults");
     setDefaultConfig();
@@ -1319,15 +1322,26 @@ void setup() {
   }
   applyConfigToLEDStrips();
 
-  wifiManager.setTimeout(30);
-  if (!wifiManager.autoConnect("StairLight_AP", "12345678"))
-    if (DEBUG) Serial.println("WiFi connection failed...");
-    else if (DEBUG) Serial.println("WiFi connected: " + WiFi.localIP().toString());
+  // Isključivanje watchdoga za WiFi postavljanje
+  esp_task_wdt_delete(NULL);
 
+  // Postavljanje WiFi-a
+  wifiManager.setTimeout(30);
+  if (!wifiManager.autoConnect("StairLight_AP", "12345678")) {
+    if (DEBUG) Serial.println("WiFi connection failed...");
+  } else {
+    if (DEBUG) Serial.println("WiFi connected: " + WiFi.localIP().toString());
+  }
+
+  // Ponovno uključivanje watchdoga nakon WiFi postavljanja
+  esp_task_wdt_add(NULL);
+
+  // Postavljanje mDNS-a
   if (MDNS.begin("stairlight")) {
     MDNS.addService("http", "tcp", 80);
   }
 
+  // Postavljanje web poslužitelja
   server.on("/api/getConfig", HTTP_GET, handleGetConfig);
   server.on("/api/saveConfig", HTTP_POST, handleSaveConfig);
   server.on("/", HTTP_GET, []() {
@@ -1336,6 +1350,7 @@ void setup() {
   server.onNotFound(handleNotFound);
   server.begin();
 
+  // Postavljanje pinova i prekida
   pinMode(MAIN_SWITCH_PIN, INPUT_PULLUP);
   pinMode(LED1_SENSOR_START_PIN, INPUT);
   pinMode(LED1_SENSOR_END_PIN, INPUT);
@@ -1346,6 +1361,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(LED2_SENSOR_START_PIN), led2SensorStartISR, RISING);
   attachInterrupt(digitalPinToInterrupt(LED2_SENSOR_END_PIN), led2SensorEndISR, RISING);
 
+  // Postavljanje vremena
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
   if (DEBUG) Serial.println("Setup complete");
 }
