@@ -6,38 +6,65 @@
   <title data-translate="title">StairLight Configuration</title>
   <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="stylesheet" href="/style.css">
-  <script src="/script.js" defer></script>
 </head>
 <body>
   <div id="titleContainer">
-    <button id="langToggle">EN</button>
     <h1 data-translate="title">StairLight Configuration</h1>
+    <button id="langToggle">EN</button>
   </div>
 
   <nav>
-    <button id="led1NavButton">LED1</button>
-    <button id="led2NavButton">LED2</button>
-    <button id="dayNightNavButton">Day/Night</button>
+    <button id="homeNavButton" data-translate="home">Home</button>
+    <button id="led1NavButton" data-translate="led1">LED1</button>
+    <button id="led2NavButton" data-translate="led2">LED2</button>
   </nav>
 
-  <main id="led1Page" class="sectionBox">
+  <main id="homePage" class="sectionBox">
+    <h2 data-translate="welcome">Welcome to StairLight</h2>
+    <p class="intro-text" data-translate="introText">Configure your smart lighting system with ease!</p>
+    <div class="instructions">
+      <h3 data-translate="gettingStarted">Getting Started</h3>
+      <ul>
+        <li data-translate="step1">Press and hold the main switch for 6-8 seconds to activate Access Point (AP) mode.</li>
+        <li data-translate="step2">Connect to WiFi network "StairLight_AP" (password: 12345678).</li>
+        <li data-translate="step3">Navigate to 192.168.4.1 in your browser to access this page.</li>
+        <li data-translate="step4">Use the LED1 and LED2 tabs to adjust settings.</li>
+      </ul>
+    </div>
+  </main>
+
+  <main id="led1Page" class="sectionBox hidden">
     <h2 data-translate="led1Settings">LED1 Settings</h2>
     <div class="field">
       <label for="led1Type" data-translate="ledType">LED Type:</label>
       <select id="led1Type">
-        <option value=""></option>
+        <option value="" data-translate="selectLEDType">-- Select LED Type --</option>
         <option value="off" data-translate="off">Off</option>
         <option value="ws2811">ws2811</option>
+        <option value="ws2812">ws2812</option>
         <option value="ws2812b">ws2812b</option>
+        <option value="ws2813">ws2813</option>
+        <option value="sk6812">sk6812</option>
         <option value="ws2811_white">ws2811 white</option>
+      </select>
+    </div>
+    <div class="field" id="led1ColorOrderSection">
+      <label for="led1ColorOrder" data-translate="colorOrder">Color Order:</label>
+      <select id="led1ColorOrder">
+        <option value="RGB">RGB</option>
+        <option value="GRB" selected>GRB</option>
+        <option value="BGR">BGR</option>
+        <option value="RBG">RBG</option>
+        <option value="GBR">GBR</option>
+        <option value="BRG">BRG</option>
       </select>
     </div>
     <div id="led1ModeSection" class="field hidden">
       <label for="led1InstallationMode" data-translate="installationMode">Installation Mode:</label>
       <select id="led1InstallationMode">
-        <option value=""></option>
-        <option value="linija" data-translate="linija">Linija</option>
-        <option value="stepenica" data-translate="stepenica">Stepenica</option>
+        <option value="" data-translate="selectMode">-- Select Mode --</option>
+        <option value="linija" data-translate="linija">Line</option>
+        <option value="stepenica" data-translate="stepenica">Step</option>
       </select>
     </div>
     <div id="led1LinijaSettings" class="field hidden">
@@ -62,14 +89,14 @@
       <div id="led1DynamicSteps" class="field hidden"></div>
       <hr>
       <div class="field">
-        <label data-translate="efektKreniOd">Efekt Kreni Od:</label>
+        <label data-translate="efektKreniOd">Effect Start From:</label>
         <label>
           <input type="radio" name="led1_efektKreniOd" id="led1_efektKreniOd_sredina" value="sredina" checked>
-          <span data-translate="sredine">Sredine</span>
+          <span data-translate="sredine">Middle</span>
         </label>
         <label>
           <input type="radio" name="led1_efektKreniOd" id="led1_efektKreniOd_ruba" value="ruba">
-          <span data-translate="ruba">Ruba</span>
+          <span data-translate="ruba">Edge</span>
         </label>
       </div>
       <div id="led1_rotDiv" class="field hidden">
@@ -94,7 +121,7 @@
     <div id="led1Effects" class="field hidden">
       <label for="led1Effect" data-translate="effect">Effect:</label>
       <select id="led1Effect">
-        <option value=""></option>
+        <option value="" data-translate="selectEffect">-- Select Effect --</option>
         <option value="solid" data-translate="solid">Solid</option>
         <option value="confetti" data-translate="confetti">Confetti</option>
         <option value="rainbow" data-translate="rainbow">Rainbow</option>
@@ -119,7 +146,29 @@
         <label for="led1OnTime" data-translate="onTime">On Time (sec):</label>
         <input type="number" id="led1OnTime" min="1">
       </div>
+      <div class="field">
+        <label for="led1Brightness" data-translate="brightness">Brightness: <span id="led1BrightnessVal">100</span>%</label>
+        <input type="range" id="led1Brightness" min="0" max="100" value="100">
+      </div>
     </div>
+    <div id="globalSettingsLed1" class="global-settings-section hidden">
+      <div class="global-controls-row">
+        <div class="field">
+          <label for="mainSwitch" data-translate="mainSwitch">Main Switch:</label>
+          <select id="mainSwitch">
+            <option value="both" data-translate="both">Both</option>
+            <option value="led1" data-translate="led1">LED1</option>
+            <option value="led2" data-translate="led2">LED2</option>
+            <option value="none" data-translate="none">None</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="maxCurrent" data-translate="maxCurrent">Max Current (mA):</label>
+          <input type="number" id="maxCurrent" min="100" max="20000" value="2000">
+        </div>
+      </div>
+    </div>
+    <button id="saveConfigButtonLed1" class="save-button hidden" data-translate="saveSettings">Save Settings</button>
   </main>
 
   <main id="led2Page" class="sectionBox hidden">
@@ -127,19 +176,33 @@
     <div class="field">
       <label for="led2Type" data-translate="ledType">LED Type:</label>
       <select id="led2Type">
-        <option value=""></option>
+        <option value="" data-translate="selectLEDType">-- Select LED Type --</option>
         <option value="off" data-translate="off">Off</option>
         <option value="ws2811">ws2811</option>
+        <option value="ws2812">ws2812</option>
         <option value="ws2812b">ws2812b</option>
+        <option value="ws2813">ws2813</option>
+        <option value="sk6812">sk6812</option>
         <option value="ws2811_white">ws2811 white</option>
+      </select>
+    </div>
+    <div class="field" id="led2ColorOrderSection">
+      <label for="led2ColorOrder" data-translate="colorOrder">Color Order:</label>
+      <select id="led2ColorOrder">
+        <option value="RGB">RGB</option>
+        <option value="GRB" selected>GRB</option>
+        <option value="BGR">BGR</option>
+        <option value="RBG">RBG</option>
+        <option value="GBR">GBR</option>
+        <option value="BRG">BRG</option>
       </select>
     </div>
     <div id="led2ModeSection" class="field hidden">
       <label for="led2InstallationMode" data-translate="installationMode">Installation Mode:</label>
       <select id="led2InstallationMode">
-        <option value=""></option>
-        <option value="linija" data-translate="linija">Linija</option>
-        <option value="stepenica" data-translate="stepenica">Stepenica</option>
+        <option value="" data-translate="selectMode">-- Select Mode --</option>
+        <option value="linija" data-translate="linija">Line</option>
+        <option value="stepenica" data-translate="stepenica">Step</option>
       </select>
     </div>
     <div id="led2LinijaSettings" class="field hidden">
@@ -164,14 +227,14 @@
       <div id="led2DynamicSteps" class="field hidden"></div>
       <hr>
       <div class="field">
-        <label data-translate="efektKreniOd">Efekt Kreni Od:</label>
+        <label data-translate="efektKreniOd">Effect Start From:</label>
         <label>
           <input type="radio" name="led2_efektKreniOd" id="led2_efektKreniOd_sredina" value="sredina" checked>
-          <span data-translate="sredine">Sredine</span>
+          <span data-translate="sredine">Middle</span>
         </label>
         <label>
           <input type="radio" name="led2_efektKreniOd" id="led2_efektKreniOd_ruba" value="ruba">
-          <span data-translate="ruba">Ruba</span>
+          <span data-translate="ruba">Edge</span>
         </label>
       </div>
       <div id="led2_rotDiv" class="field hidden">
@@ -196,7 +259,7 @@
     <div id="led2Effects" class="field hidden">
       <label for="led2Effect" data-translate="effect">Effect:</label>
       <select id="led2Effect">
-        <option value=""></option>
+        <option value="" data-translate="selectEffect">-- Select Effect --</option>
         <option value="solid" data-translate="solid">Solid</option>
         <option value="confetti" data-translate="confetti">Confetti</option>
         <option value="rainbow" data-translate="rainbow">Rainbow</option>
@@ -221,57 +284,38 @@
         <label for="led2OnTime" data-translate="onTime">On Time (sec):</label>
         <input type="number" id="led2OnTime" min="1">
       </div>
+      <div class="field">
+        <label for="led2Brightness" data-translate="brightness">Brightness: <span id="led2BrightnessVal">100</span>%</label>
+        <input type="range" id="led2Brightness" min="0" max="100" value="100">
+      </div>
     </div>
+    <div id="globalSettingsLed2" class="global-settings-section hidden">
+      <div class="global-controls-row">
+        <div class="field">
+          <label for="mainSwitch" data-translate="mainSwitch">Main Switch:</label>
+          <select id="mainSwitch">
+            <option value="both" data-translate="both">Both</option>
+            <option value="led1" data-translate="led1">LED1</option>
+            <option value="led2" data-translate="led2">LED2</option>
+            <option value="none" data-translate="none">None</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="maxCurrent" data-translate="maxCurrent">Max Current (mA):</label>
+          <input type="number" id="maxCurrent" min="100" max="20000" value="2000">
+        </div>
+      </div>
+    </div>
+    <button id="saveConfigButtonLed2" class="save-button hidden" data-translate="saveSettings">Save Settings</button>
   </main>
-
-  <main id="dayNightPage" class="sectionBox hidden">
-    <h2 data-translate="dayNightSettings">Day/Night Settings</h2>
-    <div class="field">
-      <label for="dayStart" data-translate="dayStart">Day Starts (HH:MM):</label>
-      <input type="time" id="dayStart">
-    </div>
-    <div class="field">
-      <label for="dayEnd" data-translate="dayEnd">Day Ends (HH:MM):</label>
-      <input type="time" id="dayEnd">
-    </div>
-    <div class="field">
-      <label for="dayBr" data-translate="dayBrightness">Day Brightness: <span id="dayBrVal">100</span>%</label>
-      <input type="range" id="dayBr" min="0" max="100">
-    </div>
-    <div class="field">
-      <label for="nightBr" data-translate="nightBrightness">Night Brightness: <span id="nightBrVal">30</span>%</label>
-      <input type="range" id="nightBr" min="0" max="100">
-    </div>
-  </main>
-
-  <button id="saveConfigButton">Save Settings</button>
 
   <div id="popup" class="popupModal">
     <div class="popup-content">
-      <span class="close-button">&times;</span>
+      <span class="close-button">×</span>
       <p id="popupMsg"></p>
     </div>
   </div>
 
-  <div id="globalSettings" class="sectionBox">
-    <div class="global-controls-row">
-      <div class="field">
-        <label for="mainSwitch" data-translate="mainSwitch">Main Switch:</label>
-        <select id="mainSwitch">
-          <option value="both">Both</option>
-          <option value="led1">LED1</option>
-          <option value="led2">LED2</option>
-          <option value="none">None</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="maxCurrent" data-translate="maxCurrent">Max Current (mA):</label>
-        <input type="number" id="maxCurrent" min="100" max="20000" value="2000">
-      </div>
-    </div>
-  </div>
-
-  <!-- Učitaj script.js još jednom (opcionalno, ako želiš osigurati izvršavanje nakon DOM učitavanja) -->
   <script src="/script.js" defer></script>
 </body>
 </html>
