@@ -16,24 +16,26 @@ body, html {
 #titleContainer {
   max-width: 800px;
   margin: 20px auto;
-  background-color: rgba(94,137,224,0.8);
+  background-color: rgba(94, 137, 224, 0.8);
   border-radius: 10px;
   padding: 15px;
   text-align: center;
-  position: relative;
 }
 
 #langToggle {
-  position: absolute;
-  left: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  background-color: rgba(31,66,135,0.9);
+  display: block;
+  margin: 10px auto 0;
+  background-color: rgba(31, 66, 135, 0.9);
   color: #fff;
   border: none;
   padding: 5px 10px;
   border-radius: 5px;
   cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+#langToggle:hover {
+  background-color: rgba(31, 66, 135, 1);
 }
 
 #titleContainer h1 {
@@ -46,11 +48,11 @@ nav {
   bottom: 0;
   left: 0;
   width: 100%;
-  background-color: rgba(31,66,135,0.9);
+  background-color: rgba(31, 66, 135, 0.9);
   display: flex;
   justify-content: space-around;
   padding: 10px 0;
-  box-shadow: 0 -2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.1);
 }
 
 nav button {
@@ -71,7 +73,7 @@ main.sectionBox {
   max-width: 800px;
   margin: 20px auto;
   padding: 20px 15px;
-  background-color: rgba(31,66,135,0.8);
+  background-color: rgba(31, 66, 135, 0.8);
   border-radius: 10px;
   display: none;
 }
@@ -83,6 +85,7 @@ main.sectionBox:not(.hidden) {
 .sectionBox h2 {
   text-align: center;
   margin-bottom: 10px;
+  color: #e5e7eb;
 }
 
 .field {
@@ -104,7 +107,7 @@ main.sectionBox:not(.hidden) {
   padding: 8px 12px;
   border: 1px solid #9ca3af;
   border-radius: 5px;
-  background-color: rgba(255,255,255,0.8);
+  background-color: rgba(255, 255, 255, 0.8);
   color: #111827;
 }
 
@@ -128,11 +131,11 @@ main.sectionBox:not(.hidden) {
   top: 0;
   width: 100%;
   height: 100%;
-  background-color: rgba(0,0,0,0.5);
+  background-color: rgba(0, 0, 0, 0.5);
 }
 
 .popup-content {
-  background-color: rgba(31,66,135,0.95);
+  background-color: rgba(31, 66, 135, 0.95);
   margin: 15% auto;
   padding: 20px;
   border: 2px solid #5c51cf;
@@ -157,9 +160,9 @@ main.sectionBox:not(.hidden) {
   color: #fff;
 }
 
-#saveConfigButton {
+.save-button {
   display: block;
-  margin: 20px auto 60px auto;
+  margin: 20px auto;
   background-color: #4CAF50;
   color: #fff;
   border: none;
@@ -170,36 +173,51 @@ main.sectionBox:not(.hidden) {
   transition: background-color 0.3s ease;
 }
 
-#saveConfigButton:hover {
+.save-button:hover {
   background-color: #45a049;
 }
 
-@media (max-width:600px) {
-  #titleContainer, main.sectionBox {
-    margin: 10px;
-    padding: 10px;
-  }
-  #saveConfigButton {
-    font-size: 0.9em;
-  }
-  nav button {
-    font-size: 1em;
-  }
+.instructions {
+  margin-top: 20px;
 }
 
-#globalSettings {
-  max-width: 800px;
-  margin: 20px auto 80px auto;
+.instructions h3 {
+  color: #e5e7eb;
+  margin-bottom: 10px;
+}
+
+.instructions ul {
+  text-align: left;
+  margin: 0 auto;
+  max-width: 600px;
+  color: #e5e7eb;
+  list-style-type: disc;
+  padding-left: 20px;
+}
+
+.instructions li {
+  margin-bottom: 10px;
+}
+
+.intro-text {
+  color: #e5e7eb;
+  font-size: 1.2em;
+  margin: 10px 0;
+  text-align: center;
+}
+
+.global-settings-section.hidden {
+  display: none;
 }
 
 .global-controls-row {
   display: flex;
   gap: 20px;
   justify-content: space-between;
-  background-color: rgba(31,66,135,0.8);
+  background-color: rgba(31, 66, 135, 0.8);
   border-radius: 10px;
   padding: 15px;
-  margin: 0 15px;
+  margin: 20px 0;
 }
 
 .global-controls-row .field {
@@ -212,7 +230,7 @@ main.sectionBox:not(.hidden) {
   padding: 8px 12px;
   border: 1px solid #9ca3af;
   border-radius: 5px;
-  background-color: rgba(255,255,255,0.8);
+  background-color: rgba(255, 255, 255, 0.8);
   color: #111827;
   font-size: 1em;
 }
@@ -223,10 +241,20 @@ main.sectionBox:not(.hidden) {
   border-color: #5c51cf;
 }
 
-@media (max-width:600px) {
+@media (max-width: 600px) {
+  #titleContainer, main.sectionBox {
+    margin: 10px;
+    padding: 10px;
+  }
+  .save-button {
+    font-size: 0.9em;
+  }
+  nav button {
+    font-size: 1em;
+  }
   .global-controls-row {
     flex-direction: column;
     gap: 10px;
-    margin: 10px;
+    margin: 10px 0;
   }
 }
