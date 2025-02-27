@@ -4,13 +4,18 @@
 #include <ArduinoJson.h>
 #include <FastLED.h>
 #include <esp_task_wdt.h>
+#include <numeric>  // Dodano za std::accumulate
 
+#define DEBUG true  // Postavite na true za debugging, false za produkciju
+
+// Konfiguracija Watchdog Timera
 const esp_task_wdt_config_t wdt_config = {
   .timeout_ms = 10000,
   .idle_core_mask = 0,
   .trigger_panic = true
 };
 
+// Definicija pinova
 #define MAIN_SWITCH_PIN 26
 #define LED1_DATA_PIN 33
 #define LED2_DATA_PIN 5
@@ -19,6 +24,7 @@ const esp_task_wdt_config_t wdt_config = {
 #define LED2_SENSOR_START_PIN 32
 #define LED2_SENSOR_END_PIN 27
 
+// Enumeracije
 enum class TrackState {
   OFF = 0,
   WIPE_IN,
@@ -45,6 +51,7 @@ enum class ColorOrder {
   BRG
 };
 
+// Strukture
 struct Track {
   TrackState state = TrackState::OFF;
   bool reverse = false;
@@ -63,6 +70,7 @@ struct StepSegment {
   int indexCount;
 };
 
+// Globalne varijable
 WebServer server(80);
 JsonDocument configDoc;
 int maxCurrent = 2000;
@@ -125,9 +133,9 @@ bool gLastButtonState = HIGH;
 const unsigned long BTN_DEBOUNCE_MS = 250;
 
 Track track1, track2;
-volatile bool sensorTriggered[4] = { false, false, false, false };
-unsigned long gIrLast[4] = { 0, 0, 0, 0 };
-const unsigned long IR_DEBOUNCE = 300;
+volatile bool sensorTriggered[4] = {false, false, false, false};
+unsigned long gIrLast[4] = {0, 0, 0, 0};
+const unsigned long IR_DEBOUNCE = 500;
 
 static uint8_t sHue1 = 0, sHue2 = 0;
 static uint16_t sMet1 = 0, sMet2 = 0;
@@ -146,12 +154,11 @@ static int seqState2 = 0;
 static int seqCurrentStep2 = 0;
 static unsigned long seqWaitStart2 = 0;
 
-#define DEBUG 1
-
 bool isAPMode = false;
 unsigned long apStartTime = 0;
 const unsigned long AP_TIMEOUT_MS = 300000;
 
+// Funkcije
 void nonBlockingDelay(unsigned long ms) {
   unsigned long start = millis();
   while (millis() - start < ms) {
@@ -182,18 +189,13 @@ void signalAPActive() {
       delay(200);
     }
   }
-  // Osiguraj da sve LED-ice budu ugašene nakon treptanja
-  if (leds1 && gLed1Type != LedType::NONE) {
-    for (int i = 0; i < gNumLeds1; i++) leds1[i] = CRGB::Black;
-  }
-  if (leds2 && gLed2Type != LedType::NONE) {
-    for (int i = 0; i < gNumLeds2; i++) leds2[i] = CRGB::Black;
-  }
+  if (leds1 && gLed1Type != LedType::NONE) fill_solid(leds1, gNumLeds1, CRGB::Black);
+  if (leds2 && gLed2Type != LedType::NONE) fill_solid(leds2, gNumLeds2, CRGB::Black);
   FastLED.show();
 }
 
 void applyLightningEffect(CRGB* arr, int count) {
-  for (int i = 0; i < count; i++) arr[i] = CRGB::Black;
+  fill_solid(arr, count, CRGB::Black);
   int flashes = random(2, 4);
   for (int f = 0; f < flashes; f++) {
     int start = random(count);
@@ -216,11 +218,8 @@ void applyGlobalEffect(CRGB* arr, int count, bool isLed1) {
   uint8_t brightness = map(isLed1 ? gBrightness1 : gBrightness2, 0, 100, 0, 255);
 
   switch (effect) {
-    case 0:
-      for (int i = 0; i < count; i++) {
-        arr[i] = CRGB(r, g, b);
-        arr[i].nscale8(brightness);
-      }
+    case 0: 
+      fill_solid(arr, count, CRGB(r, g, b).nscale8(brightness)); 
       break;
     case 1:
       for (int i = 0; i < count; i++) arr[i].nscale8(200);
@@ -229,25 +228,24 @@ void applyGlobalEffect(CRGB* arr, int count, bool isLed1) {
       break;
     case 2:
       for (int i = 0; i < count; i++) {
-        if (isLed1) arr[i] = CHSV(sHue1 + i * 2, 255, 255);
-        else arr[i] = CHSV(sHue2 + i * 2, 255, 255);
+        CHSV hsv((isLed1 ? sHue1 : sHue2) + i * 2, 255, 255);
+        arr[i] = hsv;  // Konverzija CHSV u CRGB
         arr[i].nscale8(brightness);
       }
-      if (isLed1) sHue1++;
-      else sHue2++;
+      if (isLed1) sHue1++; else sHue2++;
       break;
     case 3:
       for (int i = 0; i < count; i++) arr[i].fadeToBlackBy(40);
       if (isLed1) {
-        arr[sMet1] = CHSV(30, 255, 255);
+        CHSV hsv(30, 255, 255);
+        arr[sMet1] = hsv;  // Konverzija CHSV u CRGB
         arr[sMet1].nscale8(brightness);
-        sMet1++;
-        if (sMet1 >= count) sMet1 = 0;
+        sMet1 = (sMet1 + 1) % count;
       } else {
-        arr[sMet2] = CHSV(180, 255, 255);
+        CHSV hsv(180, 255, 255);
+        arr[sMet2] = hsv;  // Konverzija CHSV u CRGB
         arr[sMet2].nscale8(brightness);
-        sMet2++;
-        if (sMet2 >= count) sMet2 = 0;
+        sMet2 = (sMet2 + 1) % count;
       }
       break;
     case 4:
@@ -255,44 +253,33 @@ void applyGlobalEffect(CRGB* arr, int count, bool isLed1) {
         sFadeVal1 += (5 * sFadeDir1);
         if (sFadeVal1 > 255) { sFadeVal1 = 255; sFadeDir1 = -1; }
         if (sFadeVal1 < 0) { sFadeVal1 = 0; sFadeDir1 = 1; }
-        CRGB c = CHSV(160, 200, 255);
-        c.nscale8_video((uint8_t)sFadeVal1);
-        c.nscale8(brightness);
-        for (int i = 0; i < count; i++) arr[i] = c;
+        CHSV hsv(160, 200, 255);
+        CRGB rgb = hsv;  // Konverzija CHSV u CRGB
+        rgb.nscale8_video((uint8_t)sFadeVal1);
+        rgb.nscale8(brightness);
+        fill_solid(arr, count, rgb);
       } else {
         sFadeVal2 += (5 * sFadeDir2);
         if (sFadeVal2 > 255) { sFadeVal2 = 255; sFadeDir2 = -1; }
         if (sFadeVal2 < 0) { sFadeVal2 = 0; sFadeDir2 = 1; }
-        CRGB c = CHSV(60, 200, 255);
-        c.nscale8_video((uint8_t)sFadeVal2);
-        c.nscale8(brightness);
-        for (int i = 0; i < count; i++) arr[i] = c;
+        CHSV hsv(60, 200, 255);
+        CRGB rgb = hsv;  // Konverzija CHSV u CRGB
+        rgb.nscale8_video((uint8_t)sFadeVal2);
+        rgb.nscale8(brightness);
+        fill_solid(arr, count, rgb);
       }
       break;
     case 5:
-      for (int i = 0; i < count; i++) {
-        uint8_t rr = random(150, 256);
-        uint8_t gg = random(0, 100);
-        arr[i] = CRGB(rr, gg, 0);
-        arr[i].nscale8(brightness);
-      }
+      for (int i = 0; i < count; i++) arr[i] = CRGB(random(150, 256), random(0, 100), 0).nscale8(brightness);
       break;
-    case 6:
-      applyLightningEffect(arr, count);
-      for (int i = 0; i < count; i++) arr[i].nscale8(brightness);
+    case 6: 
+      applyLightningEffect(arr, count); 
+      for (int i = 0; i < count; i++) arr[i].nscale8(brightness); 
       break;
-    default:
-      for (int i = 0; i < count; i++) {
-        arr[i] = CRGB(r, g, b);
-        arr[i].nscale8(brightness);
-      }
+    default: 
+      fill_solid(arr, count, CRGB(r, g, b).nscale8(brightness)); 
       break;
   }
-}
-
-void doSolid(CRGB* arr, int count, uint8_t r, uint8_t g, uint8_t b) {
-  if (!arr || count <= 0) return;
-  for (int i = 0; i < count; i++) arr[i] = CRGB(r, g, b);
 }
 
 void updateTrack_line(Track& trk, CRGB* arr, int count, bool isLed1) {
@@ -300,10 +287,7 @@ void updateTrack_line(Track& trk, CRGB* arr, int count, bool isLed1) {
   switch (trk.state) {
     case TrackState::OFF: break;
     case TrackState::WIPE_IN: updateWipeIn_line(trk, arr, count, isLed1); break;
-    case TrackState::EFFECT:
-      applyGlobalEffect(arr, count, isLed1);
-      updateEffect_line(trk, isLed1);
-      break;
+    case TrackState::EFFECT: applyGlobalEffect(arr, count, isLed1); updateEffect_line(trk, isLed1); break;
     case TrackState::WIPE_OUT: updateWipeOut_line(trk, arr, count, isLed1); break;
   }
 }
@@ -313,23 +297,15 @@ void updateWipeIn_line(Track& trk, CRGB* arr, int count, bool isLed1) {
   if (now - trk.lastUpdate < (isLed1 ? gWipeInSpeedMs1 : gWipeInSpeedMs2)) return;
   trk.lastUpdate += (isLed1 ? gWipeInSpeedMs1 : gWipeInSpeedMs2);
 
-  CRGB wipeColor;
-  if ((isLed1 ? gEffect1 : gEffect2) == 0) wipeColor = CRGB(isLed1 ? gColorR1 : gColorR2, isLed1 ? gColorG1 : gColorG2, isLed1 ? gColorB1 : gColorB2);
-  else {
-    wipeColor = CHSV(isLed1 ? sHue1 : sHue2, 255, 255);
-    if (isLed1) sHue1++;
-    else sHue2++;
-  }
-  uint8_t brightness = map(isLed1 ? gBrightness1 : gBrightness2, 0, 100, 0, 255);
-  wipeColor.nscale8(brightness);
+  CRGB wipeColor = (isLed1 ? gEffect1 : gEffect2) == 0 ?
+    CRGB(isLed1 ? gColorR1 : gColorR2, isLed1 ? gColorG1 : gColorG2, isLed1 ? gColorB1 : gColorB2) :
+    CHSV(isLed1 ? sHue1++ : sHue2++, 255, 255);
+  wipeColor.nscale8(map(isLed1 ? gBrightness1 : gBrightness2, 0, 100, 0, 255));
 
   int idx = trk.reverse ? (count - 1 - trk.step) : trk.step;
   if (idx >= 0 && idx < count) {
-    if (trk.reverse) {
-      for (int i = count - 1; i >= idx; i--) arr[i] = wipeColor;
-    } else {
-      for (int i = 0; i <= idx; i++) arr[i] = wipeColor;
-    }
+    if (trk.reverse) for (int i = count - 1; i >= idx; i--) arr[i] = wipeColor;
+    else for (int i = 0; i <= idx; i++) arr[i] = wipeColor;
     trk.step++;
   } else {
     trk.state = TrackState::EFFECT;
@@ -344,9 +320,7 @@ void updateEffect_line(Track& trk, bool isLed1) {
       trk.state = TrackState::WIPE_OUT;
       trk.lastUpdate = now;
       trk.step = 0;
-    } else {
-      trk.state = TrackState::OFF;
-    }
+    } else trk.state = TrackState::OFF;
   }
 }
 
@@ -357,15 +331,10 @@ void updateWipeOut_line(Track& trk, CRGB* arr, int count, bool isLed1) {
 
   int idx = trk.reverse ? trk.step : (count - 1 - trk.step);
   if (idx >= 0 && idx < count) {
-    if (trk.reverse) {
-      for (int i = 0; i <= idx; i++) arr[i] = CRGB::Black;
-    } else {
-      for (int i = count - 1; i >= idx; i--) arr[i] = CRGB::Black;
-    }
+    if (trk.reverse) for (int i = 0; i <= idx; i++) arr[i] = CRGB::Black;
+    else for (int i = count - 1; i >= idx; i--) arr[i] = CRGB::Black;
     trk.step++;
-  } else {
-    trk.state = TrackState::OFF;
-  }
+  } else trk.state = TrackState::OFF;
 }
 
 void initStepSegments(int ledNum) {
@@ -382,20 +351,11 @@ void initStepSegments(int ledNum) {
 
   if (gBrojStepenica <= 0 || gDefaultLedsPerStep <= 0) return;
 
-  gTotalLedsStepenice = 0;
-  if (gVariableSteps && gStepLengths) {
-    for (int i = 0; i < gBrojStepenica; i++) {
-      if (gStepLengths[i] <= 0) return;
-      gTotalLedsStepenice += gStepLengths[i];
-    }
-  } else {
-    gTotalLedsStepenice = gBrojStepenica * gDefaultLedsPerStep;
-  }
+  gTotalLedsStepenice = gVariableSteps && gStepLengths ?
+    std::accumulate(gStepLengths, gStepLengths + gBrojStepenica, 0) :
+    gBrojStepenica * gDefaultLedsPerStep;
 
-  if (stepsArray) {
-    delete[] stepsArray;
-    stepsArray = nullptr;
-  }
+  if (stepsArray) { delete[] stepsArray; stepsArray = nullptr; }
   stepsArray = new StepSegment[gBrojStepenica];
   if (!stepsArray) {
     if (DEBUG) Serial.println("Failed to allocate stepsArray");
@@ -404,20 +364,12 @@ void initStepSegments(int ledNum) {
 
   int currentIndex = 0;
   for (int i = 0; i < gBrojStepenica; i++) {
-    stepsArray[i].state = TrackState::OFF;
-    stepsArray[i].reverse = (gRotacijaStepenica && (i % 2 == 1));
-    stepsArray[i].lastUpdate = 0;
-    stepsArray[i].step = 0;
-    stepsArray[i].effectStartTime = 0;
-    stepsArray[i].indexStart = currentIndex;
-    stepsArray[i].indexCount = gVariableSteps ? gStepLengths[i] : gDefaultLedsPerStep;
+    stepsArray[i] = {TrackState::OFF, gRotacijaStepenica && (i % 2 == 1), 0, 0, 0, currentIndex,
+                     gVariableSteps ? gStepLengths[i] : gDefaultLedsPerStep};
     currentIndex += stepsArray[i].indexCount;
   }
 
-  if (leds) {
-    delete[] leds;
-    leds = nullptr;
-  }
+  if (leds) { delete[] leds; leds = nullptr; }
   leds = new CRGB[gTotalLedsStepenice];
   if (!leds) {
     delete[] stepsArray;
@@ -479,15 +431,11 @@ void initStepSegments(int ledNum) {
           case ColorOrder::BRG: FastLED.addLeds<SK6812, LED1_DATA_PIN, BRG>(leds, gTotalLedsStepenice); break;
         }
         break;
-      case LedType::WS2811_WHITE:
-        FastLED.addLeds<WS2811, LED1_DATA_PIN, RGB>(leds, gTotalLedsStepenice);
-        break;
-      default:
-        FastLED.addLeds<WS2812B, LED1_DATA_PIN, GRB>(leds, gTotalLedsStepenice);
-        break;
+      case LedType::WS2811_WHITE: FastLED.addLeds<WS2811, LED1_DATA_PIN, RGB>(leds, gTotalLedsStepenice); break;
+      default: FastLED.addLeds<WS2812B, LED1_DATA_PIN, GRB>(leds, gTotalLedsStepenice); break;
     }
-    if (DEBUG) Serial.printf("LED1 initialized with %d LEDs on pin %d\n", gTotalLedsStepenice, LED1_DATA_PIN);
-  } else if (ledNum == 2) {
+    if (DEBUG) Serial.printf("LED1 initialized: %d LEDs\n", gTotalLedsStepenice);
+  } else {
     switch (gLedType) {
       case LedType::WS2811:
         switch (gColorOrder) {
@@ -539,14 +487,10 @@ void initStepSegments(int ledNum) {
           case ColorOrder::BRG: FastLED.addLeds<SK6812, LED2_DATA_PIN, BRG>(leds, gTotalLedsStepenice); break;
         }
         break;
-      case LedType::WS2811_WHITE:
-        FastLED.addLeds<WS2811, LED2_DATA_PIN, RGB>(leds, gTotalLedsStepenice);
-        break;
-      default:
-        FastLED.addLeds<WS2812B, LED2_DATA_PIN, GRB>(leds, gTotalLedsStepenice);
-        break;
+      case LedType::WS2811_WHITE: FastLED.addLeds<WS2811, LED2_DATA_PIN, RGB>(leds, gTotalLedsStepenice); break;
+      default: FastLED.addLeds<WS2812B, LED2_DATA_PIN, GRB>(leds, gTotalLedsStepenice); break;
     }
-    if (DEBUG) Serial.printf("LED2 initialized with %d LEDs on pin %d\n", gTotalLedsStepenice, LED2_DATA_PIN);
+    if (DEBUG) Serial.printf("LED2 initialized: %d LEDs\n", gTotalLedsStepenice);
   }
   FastLED.clear(true);
 }
@@ -556,14 +500,10 @@ void updateWipeIn_step(StepSegment& seg, CRGB* arr, bool isLed1) {
   if (now - seg.lastUpdate < (isLed1 ? gWipeInSpeedMs1 : gWipeInSpeedMs2)) return;
   seg.lastUpdate += (isLed1 ? gWipeInSpeedMs1 : gWipeInSpeedMs2);
 
-  CRGB wipeColor = CRGB(isLed1 ? gColorR1 : gColorR2, isLed1 ? gColorG1 : gColorG2, isLed1 ? gColorB1 : gColorB2);
-  if ((isLed1 ? gEffect1 : gEffect2) != 0) {
-    wipeColor = CHSV(isLed1 ? sHue1 : sHue2, 255, 255);
-    if (isLed1) sHue1++;
-    else sHue2++;
-  }
-  uint8_t brightness = map(isLed1 ? gBrightness1 : gBrightness2, 0, 100, 0, 255);
-  wipeColor.nscale8(brightness);
+  CRGB wipeColor = (isLed1 ? gEffect1 : gEffect2) == 0 ?
+    CRGB(isLed1 ? gColorR1 : gColorR2, isLed1 ? gColorG1 : gColorG2, isLed1 ? gColorB1 : gColorB2) :
+    CHSV(isLed1 ? sHue1++ : sHue2++, 255, 255);
+  wipeColor.nscale8(map(isLed1 ? gBrightness1 : gBrightness2, 0, 100, 0, 255));
 
   if ((isLed1 ? gEfektKreniOd1 : gEfektKreniOd2) == "sredina") {
     int mid = seg.indexCount / 2;
@@ -596,9 +536,7 @@ void updateEffect_step(StepSegment& seg, bool isLed1) {
       seg.state = TrackState::WIPE_OUT;
       seg.lastUpdate = now;
       seg.step = 0;
-    } else {
-      seg.state = TrackState::OFF;
-    }
+    } else seg.state = TrackState::OFF;
   }
 }
 
@@ -620,9 +558,7 @@ void updateWipeOut_step(StepSegment& seg, CRGB* arr, bool isLed1) {
     if (idx >= 0 && idx < seg.indexCount) {
       arr[seg.indexStart + idx] = CRGB::Black;
       seg.step++;
-    } else {
-      seg.state = TrackState::OFF;
-    }
+    } else seg.state = TrackState::OFF;
   }
 }
 
@@ -632,14 +568,13 @@ void applyEffectSegment(StepSegment& seg, CRGB* arr, bool isLed1) {
   uint8_t brightness = map(isLed1 ? gBrightness1 : gBrightness2, 0, 100, 0, 255);
 
   if ((isLed1 ? gEffect1 : gEffect2) == 0) {
-    for (int i = 0; i < count; i++) {
-      arr[start + i] = CRGB(isLed1 ? gColorR1 : gColorR2, isLed1 ? gColorG1 : gColorG2, isLed1 ? gColorB1 : gColorB2);
-      arr[start + i].nscale8(brightness);
-    }
+    CRGB color(isLed1 ? gColorR1 : gColorR2, isLed1 ? gColorG1 : gColorG2, isLed1 ? gColorB1 : gColorB2);
+    color.nscale8(brightness);
+    for (int i = 0; i < count; i++) arr[start + i] = color;
   } else {
     static CRGB temp[2048];
     if (count > 2048) return;
-    for (int i = 0; i < count; i++) temp[i] = CRGB::Black;
+    fill_solid(temp, count, CRGB::Black);
     applyGlobalEffect(temp, count, isLed1);
     for (int i = 0; i < count; i++) arr[start + i] = temp[i];
   }
@@ -650,283 +585,133 @@ void updateSegment(StepSegment& seg, CRGB* arr, bool isLed1) {
   switch (seg.state) {
     case TrackState::OFF: break;
     case TrackState::WIPE_IN: updateWipeIn_step(seg, arr, isLed1); break;
-    case TrackState::EFFECT:
-      applyEffectSegment(seg, arr, isLed1);
-      updateEffect_step(seg, isLed1);
-      break;
+    case TrackState::EFFECT: applyEffectSegment(seg, arr, isLed1); updateEffect_step(seg, isLed1); break;
     case TrackState::WIPE_OUT: updateWipeOut_step(seg, arr, isLed1); break;
   }
 }
 
 void updateAllStepSegments(int ledNum) {
-  if (ledNum == 1) {
-    if (!stepsArray1 || !leds1 || gTotalLedsStepenice1 <= 0) return;
-    for (int i = 0; i < gBrojStepenica1; i++) updateSegment(stepsArray1[i], leds1, true);
-  } else if (ledNum == 2) {
-    if (!stepsArray2 || !leds2 || gTotalLedsStepenice2 <= 0) return;
-    for (int i = 0; i < gBrojStepenica2; i++) updateSegment(stepsArray2[i], leds2, false);
-  }
+  StepSegment* stepsArray = (ledNum == 1) ? stepsArray1 : stepsArray2;
+  CRGB* leds = (ledNum == 1) ? leds1 : leds2;
+  int gBrojStepenica = (ledNum == 1) ? gBrojStepenica1 : gBrojStepenica2;
+  int gTotalLedsStepenice = (ledNum == 1) ? gTotalLedsStepenice1 : gTotalLedsStepenice2;
+  if (!stepsArray || !leds || gTotalLedsStepenice <= 0) return;
+  for (int i = 0; i < gBrojStepenica; i++) updateSegment(stepsArray[i], leds, ledNum == 1);
 }
 
 void startSequence(bool forward, int ledNum) {
+  StepSegment* stepsArray = (ledNum == 1) ? stepsArray1 : stepsArray2;
+  int gBrojStepenica = (ledNum == 1) ? gBrojStepenica1 : gBrojStepenica2;
+  int gTotalLedsStepenice = (ledNum == 1) ? gTotalLedsStepenice1 : gTotalLedsStepenice2;
+  if (!stepsArray || gTotalLedsStepenice <= 0) return;
+
   if (ledNum == 1) {
-    if (!stepsArray1 || !leds1 || gTotalLedsStepenice1 <= 0) return;
     seqActive1 = true;
     seqForward1 = forward;
     seqState1 = 0;
     seqWaitStart1 = 0;
-    if (forward) seqCurrentStep1 = 0;
-    else seqCurrentStep1 = gBrojStepenica1 - 1;
-    for (int i = 0; i < gBrojStepenica1; i++) {
-      stepsArray1[i].state = TrackState::OFF;
-      stepsArray1[i].step = 0;
-      stepsArray1[i].lastUpdate = millis();
-    }
-  } else if (ledNum == 2) {
-    if (!stepsArray2 || !leds2 || gTotalLedsStepenice2 <= 0) return;
+    seqCurrentStep1 = forward ? 0 : gBrojStepenica - 1;
+    for (int i = 0; i < gBrojStepenica; i++) stepsArray[i] = {TrackState::OFF, stepsArray[i].reverse, millis(), 0, 0, stepsArray[i].indexStart, stepsArray[i].indexCount};
+  } else {
     seqActive2 = true;
     seqForward2 = forward;
     seqState2 = 0;
     seqWaitStart2 = 0;
-    if (forward) seqCurrentStep2 = 0;
-    else seqCurrentStep2 = gBrojStepenica2 - 1;
-    for (int i = 0; i < gBrojStepenica2; i++) {
-      stepsArray2[i].state = TrackState::OFF;
-      stepsArray2[i].step = 0;
-      stepsArray2[i].lastUpdate = millis();
-    }
+    seqCurrentStep2 = forward ? 0 : gBrojStepenica - 1;
+    for (int i = 0; i < gBrojStepenica; i++) stepsArray[i] = {TrackState::OFF, stepsArray[i].reverse, millis(), 0, 0, stepsArray[i].indexStart, stepsArray[i].indexCount};
   }
 }
 
 void updateSequence(int ledNum) {
-  if (ledNum == 1) {
-    if (!stepsArray1 || !leds1 || gTotalLedsStepenice1 <= 0 || !seqActive1) return;
-    if (seqState1 == 0) {
-      if (seqForward1) {
-        if (seqCurrentStep1 < gBrojStepenica1) {
-          if (stepsArray1[seqCurrentStep1].state == TrackState::OFF) {
-            stepsArray1[seqCurrentStep1].state = TrackState::WIPE_IN;
-            stepsArray1[seqCurrentStep1].step = 0;
-            stepsArray1[seqCurrentStep1].lastUpdate = millis();
-          }
-          updateSegment(stepsArray1[seqCurrentStep1], leds1, true);
-          if (stepsArray1[seqCurrentStep1].state == TrackState::EFFECT) seqCurrentStep1++;
-        } else {
-          seqState1 = 1;
-          seqWaitStart1 = millis();
-        }
-      } else {
-        if (seqCurrentStep1 >= 0) {
-          if (stepsArray1[seqCurrentStep1].state == TrackState::OFF) {
-            stepsArray1[seqCurrentStep1].state = TrackState::WIPE_IN;
-            stepsArray1[seqCurrentStep1].step = 0;
-            stepsArray1[seqCurrentStep1].lastUpdate = millis();
-          }
-          updateSegment(stepsArray1[seqCurrentStep1], leds1, true);
-          if (stepsArray1[seqCurrentStep1].state == TrackState::EFFECT) seqCurrentStep1--;
-        } else {
-          seqState1 = 1;
-          seqWaitStart1 = millis();
-        }
+  StepSegment* stepsArray = (ledNum == 1) ? stepsArray1 : stepsArray2;
+  CRGB* leds = (ledNum == 1) ? leds1 : leds2;
+  int gBrojStepenica = (ledNum == 1) ? gBrojStepenica1 : gBrojStepenica2;
+  int gTotalLedsStepenice = (ledNum == 1) ? gTotalLedsStepenice1 : gTotalLedsStepenice2;
+  bool& seqActive = (ledNum == 1) ? seqActive1 : seqActive2;
+  bool seqForward = (ledNum == 1) ? seqForward1 : seqForward2;
+  int& seqState = (ledNum == 1) ? seqState1 : seqState2;
+  int& seqCurrentStep = (ledNum == 1) ? seqCurrentStep1 : seqCurrentStep2;
+  unsigned long& seqWaitStart = (ledNum == 1) ? seqWaitStart1 : seqWaitStart2;
+  uint16_t gOnTimeSec = (ledNum == 1) ? gOnTimeSec1 : gOnTimeSec2;
+
+  if (!stepsArray || !leds || gTotalLedsStepenice <= 0 || !seqActive) return;
+
+  if (seqState == 0) {
+    if (seqForward ? seqCurrentStep < gBrojStepenica : seqCurrentStep >= 0) {
+      if (stepsArray[seqCurrentStep].state == TrackState::OFF) {
+        stepsArray[seqCurrentStep].state = TrackState::WIPE_IN;
+        stepsArray[seqCurrentStep].step = 0;
+        stepsArray[seqCurrentStep].lastUpdate = millis();
       }
-    } else if (seqState1 == 1) {
-      unsigned long now = millis();
-      if ((now - seqWaitStart1) >= (gOnTimeSec1 * 1000UL)) {
-        seqState1 = 2;
-        if (seqForward1) seqCurrentStep1 = gBrojStepenica1 - 1;
-        else seqCurrentStep1 = 0;
-      } else {
-        for (int i = 0; i < gBrojStepenica1; i++) {
-          if (stepsArray1[i].state == TrackState::EFFECT) updateSegment(stepsArray1[i], leds1, true);
-        }
-      }
-    } else if (seqState1 == 2) {
-      if (seqForward1) {
-        if (seqCurrentStep1 >= 0) {
-          if (stepsArray1[seqCurrentStep1].state == TrackState::EFFECT) {
-            stepsArray1[seqCurrentStep1].state = TrackState::WIPE_OUT;
-            stepsArray1[seqCurrentStep1].step = 0;
-            stepsArray1[seqCurrentStep1].lastUpdate = millis();
-          }
-          updateSegment(stepsArray1[seqCurrentStep1], leds1, true);
-          if (stepsArray1[seqCurrentStep1].state == TrackState::OFF) seqCurrentStep1--;
-          else return;
-        } else seqActive1 = false;
-      } else {
-        if (seqCurrentStep1 < gBrojStepenica1) {
-          if (stepsArray1[seqCurrentStep1].state == TrackState::EFFECT) {
-            stepsArray1[seqCurrentStep1].state = TrackState::WIPE_OUT;
-            stepsArray1[seqCurrentStep1].step = 0;
-            stepsArray1[seqCurrentStep1].lastUpdate = millis();
-          }
-          updateSegment(stepsArray1[seqCurrentStep1], leds1, true);
-          if (stepsArray1[seqCurrentStep1].state == TrackState::OFF) seqCurrentStep1++;
-          else return;
-        } else seqActive1 = false;
-      }
+      updateSegment(stepsArray[seqCurrentStep], leds, ledNum == 1);
+      if (stepsArray[seqCurrentStep].state == TrackState::EFFECT) seqCurrentStep += seqForward ? 1 : -1;
+    } else {
+      seqState = 1;
+      seqWaitStart = millis();
     }
-  } else if (ledNum == 2) {
-    if (!stepsArray2 || !leds2 || gTotalLedsStepenice2 <= 0 || !seqActive2) return;
-    if (seqState2 == 0) {
-      if (seqForward2) {
-        if (seqCurrentStep2 < gBrojStepenica2) {
-          if (stepsArray2[seqCurrentStep2].state == TrackState::OFF) {
-            stepsArray2[seqCurrentStep2].state = TrackState::WIPE_IN;
-            stepsArray2[seqCurrentStep2].step = 0;
-            stepsArray2[seqCurrentStep2].lastUpdate = millis();
-          }
-          updateSegment(stepsArray2[seqCurrentStep2], leds2, false);
-          if (stepsArray2[seqCurrentStep2].state == TrackState::EFFECT) seqCurrentStep2++;
-        } else {
-          seqState2 = 1;
-          seqWaitStart2 = millis();
-        }
-      } else {
-        if (seqCurrentStep2 >= 0) {
-          if (stepsArray2[seqCurrentStep2].state == TrackState::OFF) {
-            stepsArray2[seqCurrentStep2].state = TrackState::WIPE_IN;
-            stepsArray2[seqCurrentStep2].step = 0;
-            stepsArray2[seqCurrentStep2].lastUpdate = millis();
-          }
-          updateSegment(stepsArray2[seqCurrentStep2], leds2, false);
-          if (stepsArray2[seqCurrentStep2].state == TrackState::EFFECT) seqCurrentStep2--;
-        } else {
-          seqState2 = 1;
-          seqWaitStart2 = millis();
-        }
-      }
-    } else if (seqState2 == 1) {
-      unsigned long now = millis();
-      if ((now - seqWaitStart2) >= (gOnTimeSec2 * 1000UL)) {
-        seqState2 = 2;
-        if (seqForward2) seqCurrentStep2 = gBrojStepenica2 - 1;
-        else seqCurrentStep2 = 0;
-      } else {
-        for (int i = 0; i < gBrojStepenica2; i++) {
-          if (stepsArray2[i].state == TrackState::EFFECT) updateSegment(stepsArray2[i], leds2, false);
-        }
-      }
-    } else if (seqState2 == 2) {
-      if (seqForward2) {
-        if (seqCurrentStep2 >= 0) {
-          if (stepsArray2[seqCurrentStep2].state == TrackState::EFFECT) {
-            stepsArray2[seqCurrentStep2].state = TrackState::WIPE_OUT;
-            stepsArray2[seqCurrentStep2].step = 0;
-            stepsArray2[seqCurrentStep2].lastUpdate = millis();
-          }
-          updateSegment(stepsArray2[seqCurrentStep2], leds2, false);
-          if (stepsArray2[seqCurrentStep2].state == TrackState::OFF) seqCurrentStep2--;
-          else return;
-        } else seqActive2 = false;
-      } else {
-        if (seqCurrentStep2 < gBrojStepenica2) {
-          if (stepsArray2[seqCurrentStep2].state == TrackState::EFFECT) {
-            stepsArray2[seqCurrentStep2].state = TrackState::WIPE_OUT;
-            stepsArray2[seqCurrentStep2].step = 0;
-            stepsArray2[seqCurrentStep2].lastUpdate = millis();
-          }
-          updateSegment(stepsArray2[seqCurrentStep2], leds2, false);
-          if (stepsArray2[seqCurrentStep2].state == TrackState::OFF) seqCurrentStep2++;
-          else return;
-        } else seqActive2 = false;
-      }
+  } else if (seqState == 1) {
+    unsigned long now = millis();
+    if ((now - seqWaitStart) >= (gOnTimeSec * 1000UL)) {
+      seqState = 2;
+      seqCurrentStep = seqForward ? gBrojStepenica - 1 : 0;
+    } else {
+      for (int i = 0; i < gBrojStepenica; i++) if (stepsArray[i].state == TrackState::EFFECT) updateSegment(stepsArray[i], leds, ledNum == 1);
     }
+  } else if (seqState == 2) {
+    if (seqForward ? seqCurrentStep >= 0 : seqCurrentStep < gBrojStepenica) {
+      if (stepsArray[seqCurrentStep].state == TrackState::EFFECT) {
+        stepsArray[seqCurrentStep].state = TrackState::WIPE_OUT;
+        stepsArray[seqCurrentStep].step = 0;
+        stepsArray[seqCurrentStep].lastUpdate = millis();
+      }
+      updateSegment(stepsArray[seqCurrentStep], leds, ledNum == 1);
+      if (stepsArray[seqCurrentStep].state == TrackState::OFF) seqCurrentStep += seqForward ? -1 : 1;
+    } else seqActive = false;
   }
 }
 
 void handleIrSensors() {
   unsigned long now = millis();
 
-  if (sensorTriggered[0] && (now - gIrLast[0] > IR_DEBOUNCE)) {
-    gIrLast[0] = now;
-    sensorTriggered[0] = false;
-    if (gInstallationType1 == "linija" && track1.state == TrackState::OFF && gLed1Type != LedType::NONE) {
-      track1.state = TrackState::WIPE_IN;
-      track1.reverse = false;
-      track1.lastUpdate = now;
-      track1.step = 0;
-      track1.effectStartTime = 0;
-    } else if (gInstallationType1 == "stepenica" && gTotalLedsStepenice1 > 0 && gLed1Type != LedType::NONE) {
-      if (gStepeniceMode1 == "sequence") {
-        if (!seqActive1) startSequence(true, 1);
-      } else {
-        for (int i = 0; i < gBrojStepenica1; i++) {
-          if (stepsArray1[i].state == TrackState::OFF) {
-            stepsArray1[i].state = gWipeAll1 ? TrackState::WIPE_IN : TrackState::EFFECT;
-            stepsArray1[i].step = 0;
-            stepsArray1[i].lastUpdate = millis();
-          }
-        }
-      }
-    }
-  }
+  for (int i = 0; i < 4; i++) {
+    if (sensorTriggered[i] && (now - gIrLast[i] > IR_DEBOUNCE)) {
+      gIrLast[i] = now;
+      sensorTriggered[i] = false;
+      bool isLed1 = (i < 2);
+      bool isStart = (i == 0 || i == 2);
+      Track& track = isLed1 ? track1 : track2;
+      String& gInstallationType = isLed1 ? gInstallationType1 : gInstallationType2;
+      String& gStepeniceMode = isLed1 ? gStepeniceMode1 : gStepeniceMode2;
+      bool& seqActive = isLed1 ? seqActive1 : seqActive2;
+      int gTotalLedsStepenice = isLed1 ? gTotalLedsStepenice1 : gTotalLedsStepenice2;
+      LedType gLedType = isLed1 ? gLed1Type : gLed2Type;
+      bool gWipeAll = isLed1 ? gWipeAll1 : gWipeAll2;
+      StepSegment* stepsArray = isLed1 ? stepsArray1 : stepsArray2;
+      int gBrojStepenica = isLed1 ? gBrojStepenica1 : gBrojStepenica2;
 
-  if (sensorTriggered[1] && (now - gIrLast[1] > IR_DEBOUNCE)) {
-    gIrLast[1] = now;
-    sensorTriggered[1] = false;
-    if (gInstallationType1 == "linija" && track1.state == TrackState::OFF && gLed1Type != LedType::NONE) {
-      track1.state = TrackState::WIPE_IN;
-      track1.reverse = true;
-      track1.lastUpdate = now;
-      track1.step = 0;
-      track1.effectStartTime = 0;
-    } else if (gInstallationType1 == "stepenica" && gTotalLedsStepenice1 > 0 && gLed1Type != LedType::NONE) {
-      if (gStepeniceMode1 == "sequence") {
-        if (!seqActive1) startSequence(false, 1);
-      } else {
-        for (int i = 0; i < gBrojStepenica1; i++) {
-          if (stepsArray1[i].state == TrackState::OFF) {
-            stepsArray1[i].state = gWipeAll1 ? TrackState::WIPE_IN : TrackState::EFFECT;
-            stepsArray1[i].step = 0;
-            stepsArray1[i].lastUpdate = millis();
-          }
-        }
-      }
-    }
-  }
+      if (gLedType == LedType::NONE) continue;
 
-  if (sensorTriggered[2] && (now - gIrLast[2] > IR_DEBOUNCE)) {
-    gIrLast[2] = now;
-    sensorTriggered[2] = false;
-    if (gInstallationType2 == "linija" && track2.state == TrackState::OFF && gLed2Type != LedType::NONE) {
-      track2.state = TrackState::WIPE_IN;
-      track2.reverse = false;
-      track2.lastUpdate = now;
-      track2.step = 0;
-      track2.effectStartTime = 0;
-    } else if (gInstallationType2 == "stepenica" && gTotalLedsStepenice2 > 0 && gLed2Type != LedType::NONE) {
-      if (gStepeniceMode2 == "sequence") {
-        if (!seqActive2) startSequence(true, 2);
-      } else {
-        for (int i = 0; i < gBrojStepenica2; i++) {
-          if (stepsArray2[i].state == TrackState::OFF) {
-            stepsArray2[i].state = gWipeAll2 ? TrackState::WIPE_IN : TrackState::EFFECT;
-            stepsArray2[i].step = 0;
-            stepsArray2[i].lastUpdate = millis();
+      if (gInstallationType == "linija" && track.state == TrackState::OFF) {
+        if (DEBUG) Serial.printf("Starting WIPE_IN for LED%d linija\n", isLed1 ? 1 : 2);
+        track.state = TrackState::WIPE_IN;
+        track.reverse = !isStart;
+        track.lastUpdate = now;
+        track.step = 0;
+        track.effectStartTime = 0;
+      } else if (gInstallationType == "stepenica" && gTotalLedsStepenice > 0) {
+        if (gStepeniceMode == "sequence") {
+          if (!seqActive) {
+            if (DEBUG) Serial.printf("Starting sequence for LED%d stepenica\n", isLed1 ? 1 : 2);
+            startSequence(isStart, isLed1 ? 1 : 2);
           }
-        }
-      }
-    }
-  }
-
-  if (sensorTriggered[3] && (now - gIrLast[3] > IR_DEBOUNCE)) {
-    gIrLast[3] = now;
-    sensorTriggered[3] = false;
-    if (gInstallationType2 == "linija" && track2.state == TrackState::OFF && gLed2Type != LedType::NONE) {
-      track2.state = TrackState::WIPE_IN;
-      track2.reverse = true;
-      track2.lastUpdate = now;
-      track2.step = 0;
-      track2.effectStartTime = 0;
-    } else if (gInstallationType2 == "stepenica" && gTotalLedsStepenice2 > 0 && gLed2Type != LedType::NONE) {
-      if (gStepeniceMode2 == "sequence") {
-        if (!seqActive2) startSequence(false, 2);
-      } else {
-        for (int i = 0; i < gBrojStepenica2; i++) {
-          if (stepsArray2[i].state == TrackState::OFF) {
-            stepsArray2[i].state = gWipeAll2 ? TrackState::WIPE_IN : TrackState::EFFECT;
-            stepsArray2[i].step = 0;
-            stepsArray2[i].lastUpdate = millis();
+        } else {
+          for (int j = 0; j < gBrojStepenica; j++) {
+            if (stepsArray[j].state == TrackState::OFF) {
+              if (DEBUG) Serial.printf("Starting WIPE_IN for LED%d stepenica segment %d\n", isLed1 ? 1 : 2, j);
+              stepsArray[j].state = gWipeAll ? TrackState::WIPE_IN : TrackState::EFFECT;
+              stepsArray[j].step = 0;
+              stepsArray[j].lastUpdate = now;
+            }
           }
         }
       }
@@ -943,10 +728,9 @@ bool handleFileRead(String path) {
   if (path.endsWith("/")) path += "index.html";
   if (SPIFFS.exists(path)) {
     File file = SPIFFS.open(path, "r");
-    String contentType = "text/html";
-    if (path.endsWith(".css")) contentType = "text/css";
-    else if (path.endsWith(".js")) contentType = "application/javascript";
-    else if (path.endsWith(".png")) contentType = "image/png";
+    String contentType = path.endsWith(".css") ? "text/css" :
+                         path.endsWith(".js") ? "application/javascript" :
+                         path.endsWith(".png") ? "image/png" : "text/html";
     server.streamFile(file, contentType);
     file.close();
     return true;
@@ -964,14 +748,12 @@ bool loadConfig() {
   if (!file) return false;
   DeserializationError error = deserializeJson(configDoc, file);
   file.close();
-  if (error) return false;
-  return true;
+  return !error;
 }
 
 bool saveConfig() {
   File file = SPIFFS.open("/config.json", "w");
-  if (!file) return false;
-  if (serializeJson(configDoc, file) == 0) {
+  if (!file || serializeJson(configDoc, file) == 0) {
     file.close();
     return false;
   }
@@ -1019,259 +801,219 @@ void setDefaultConfig() {
 }
 
 void applyConfigToLEDStrips() {
-  String led1TypeStr = configDoc["led1"]["type"] | "ws2812b";
-  if (led1TypeStr == "off" || led1TypeStr == "") {
-    gLed1Type = LedType::NONE;
-    if (leds1) { delete[] leds1; leds1 = nullptr; }
-    gNumLeds1 = 0;
-    gTotalLedsStepenice1 = 0;
-    if (stepsArray1) { delete[] stepsArray1; stepsArray1 = nullptr; }
-    if (DEBUG) Serial.println("LED1 set to OFF");
-  } else {
-    gLed1Type = (led1TypeStr == "ws2811") ? LedType::WS2811 : (led1TypeStr == "ws2812") ? LedType::WS2812
-                                               : (led1TypeStr == "ws2812b") ? LedType::WS2812B
-                                               : (led1TypeStr == "ws2813") ? LedType::WS2813
-                                               : (led1TypeStr == "sk6812") ? LedType::SK6812
-                                               : (led1TypeStr == "ws2811_white") ? LedType::WS2811_WHITE
-                                               : LedType::WS2812B;
+  auto applyLedConfig = [&](int ledNum) {
+    JsonObject ledObj = configDoc[ledNum == 1 ? "led1" : "led2"];
+    String typeStr = ledObj["type"] | "ws2812b";
+    LedType& gLedType = (ledNum == 1) ? gLed1Type : gLed2Type;
+    CRGB*& leds = (ledNum == 1) ? leds1 : leds2;
+    int& gNumLeds = (ledNum == 1) ? gNumLeds1 : gNumLeds2;
+    String& gInstallationType = (ledNum == 1) ? gInstallationType1 : gInstallationType2;
+    ColorOrder& gColorOrder = (ledNum == 1) ? gLed1ColorOrder : gLed2ColorOrder;
 
-    String led1ColorOrderStr = configDoc["led1"]["colorOrder"] | "GRB";
-    gLed1ColorOrder = (led1ColorOrderStr == "RGB") ? ColorOrder::RGB : (led1ColorOrderStr == "GRB") ? ColorOrder::GRB
-                                                    : (led1ColorOrderStr == "BGR") ? ColorOrder::BGR
-                                                    : (led1ColorOrderStr == "RBG") ? ColorOrder::RBG
-                                                    : (led1ColorOrderStr == "GBR") ? ColorOrder::GBR
-                                                    : (led1ColorOrderStr == "BRG") ? ColorOrder::BRG
-                                                    : ColorOrder::GRB;
+    if (typeStr == "off" || typeStr == "") {
+      gLedType = LedType::NONE;
+      if (leds) { delete[] leds; leds = nullptr; }
+      gNumLeds = 0;
+      if (ledNum == 1 && stepsArray1) { delete[] stepsArray1; stepsArray1 = nullptr; gTotalLedsStepenice1 = 0; }
+      if (ledNum == 2 && stepsArray2) { delete[] stepsArray2; stepsArray2 = nullptr; gTotalLedsStepenice2 = 0; }
+      if (DEBUG) Serial.printf("LED%d set to OFF\n", ledNum);
+    } else {
+      gLedType = (typeStr == "ws2811") ? LedType::WS2811 : (typeStr == "ws2812") ? LedType::WS2812 :
+                 (typeStr == "ws2812b") ? LedType::WS2812B : (typeStr == "ws2813") ? LedType::WS2813 :
+                 (typeStr == "sk6812") ? LedType::SK6812 : (typeStr == "ws2811_white") ? LedType::WS2811_WHITE : LedType::WS2812B;
 
-    gInstallationType1 = configDoc["led1"]["mode"] | "linija";
-    if (gInstallationType1 == "linija") {
-      gNumLeds1 = configDoc["led1"]["linijaLEDCount"] | 35;
-      if (leds1) { delete[] leds1; leds1 = nullptr; }
-      leds1 = new CRGB[gNumLeds1];
-      if (!leds1) {
-        if (DEBUG) Serial.println("Failed to allocate leds1 for linija mode");
-        return;
+      String colorOrderStr = ledObj["colorOrder"] | "GRB";
+      gColorOrder = (colorOrderStr == "RGB") ? ColorOrder::RGB : (colorOrderStr == "GRB") ? ColorOrder::GRB :
+                    (colorOrderStr == "BGR") ? ColorOrder::BGR : (colorOrderStr == "RBG") ? ColorOrder::RBG :
+                    (colorOrderStr == "GBR") ? ColorOrder::GBR : (colorOrderStr == "BRG") ? ColorOrder::BRG : ColorOrder::GRB;
+
+      gInstallationType = ledObj["mode"] | "linija";
+      if (gInstallationType == "linija") {
+        gNumLeds = ledObj["linijaLEDCount"] | 35;
+        if (leds) { delete[] leds; leds = nullptr; }
+        leds = new CRGB[gNumLeds];
+        if (!leds) {
+          if (DEBUG) Serial.printf("Failed to allocate leds%d for linija\n", ledNum);
+          return;
+        }
+        if (ledNum == 1) {
+          switch (gLedType) {
+            case LedType::WS2811:
+              switch (gColorOrder) {
+                case ColorOrder::RGB: FastLED.addLeds<WS2811, LED1_DATA_PIN, RGB>(leds, gNumLeds); break;
+                case ColorOrder::GRB: FastLED.addLeds<WS2811, LED1_DATA_PIN, GRB>(leds, gNumLeds); break;
+                case ColorOrder::BGR: FastLED.addLeds<WS2811, LED1_DATA_PIN, BGR>(leds, gNumLeds); break;
+                case ColorOrder::RBG: FastLED.addLeds<WS2811, LED1_DATA_PIN, RBG>(leds, gNumLeds); break;
+                case ColorOrder::GBR: FastLED.addLeds<WS2811, LED1_DATA_PIN, GBR>(leds, gNumLeds); break;
+                case ColorOrder::BRG: FastLED.addLeds<WS2811, LED1_DATA_PIN, BRG>(leds, gNumLeds); break;
+              }
+              break;
+            case LedType::WS2812:
+              switch (gColorOrder) {
+                case ColorOrder::RGB: FastLED.addLeds<WS2812, LED1_DATA_PIN, RGB>(leds, gNumLeds); break;
+                case ColorOrder::GRB: FastLED.addLeds<WS2812, LED1_DATA_PIN, GRB>(leds, gNumLeds); break;
+                case ColorOrder::BGR: FastLED.addLeds<WS2812, LED1_DATA_PIN, BGR>(leds, gNumLeds); break;
+                case ColorOrder::RBG: FastLED.addLeds<WS2812, LED1_DATA_PIN, RBG>(leds, gNumLeds); break;
+                case ColorOrder::GBR: FastLED.addLeds<WS2812, LED1_DATA_PIN, GBR>(leds, gNumLeds); break;
+                case ColorOrder::BRG: FastLED.addLeds<WS2812, LED1_DATA_PIN, BRG>(leds, gNumLeds); break;
+              }
+              break;
+            case LedType::WS2812B:
+              switch (gColorOrder) {
+                case ColorOrder::RGB: FastLED.addLeds<WS2812B, LED1_DATA_PIN, RGB>(leds, gNumLeds); break;
+                case ColorOrder::GRB: FastLED.addLeds<WS2812B, LED1_DATA_PIN, GRB>(leds, gNumLeds); break;
+                case ColorOrder::BGR: FastLED.addLeds<WS2812B, LED1_DATA_PIN, BGR>(leds, gNumLeds); break;
+                case ColorOrder::RBG: FastLED.addLeds<WS2812B, LED1_DATA_PIN, RBG>(leds, gNumLeds); break;
+                case ColorOrder::GBR: FastLED.addLeds<WS2812B, LED1_DATA_PIN, GBR>(leds, gNumLeds); break;
+                case ColorOrder::BRG: FastLED.addLeds<WS2812B, LED1_DATA_PIN, BRG>(leds, gNumLeds); break;
+              }
+              break;
+            case LedType::WS2813:
+              switch (gColorOrder) {
+                case ColorOrder::RGB: FastLED.addLeds<WS2813, LED1_DATA_PIN, RGB>(leds, gNumLeds); break;
+                case ColorOrder::GRB: FastLED.addLeds<WS2813, LED1_DATA_PIN, GRB>(leds, gNumLeds); break;
+                case ColorOrder::BGR: FastLED.addLeds<WS2813, LED1_DATA_PIN, BGR>(leds, gNumLeds); break;
+                case ColorOrder::RBG: FastLED.addLeds<WS2813, LED1_DATA_PIN, RBG>(leds, gNumLeds); break;
+                case ColorOrder::GBR: FastLED.addLeds<WS2813, LED1_DATA_PIN, GBR>(leds, gNumLeds); break;
+                case ColorOrder::BRG: FastLED.addLeds<WS2813, LED1_DATA_PIN, BRG>(leds, gNumLeds); break;
+              }
+              break;
+            case LedType::SK6812:
+              switch (gColorOrder) {
+                case ColorOrder::RGB: FastLED.addLeds<SK6812, LED1_DATA_PIN, RGB>(leds, gNumLeds); break;
+                case ColorOrder::GRB: FastLED.addLeds<SK6812, LED1_DATA_PIN, GRB>(leds, gNumLeds); break;
+                case ColorOrder::BGR: FastLED.addLeds<SK6812, LED1_DATA_PIN, BGR>(leds, gNumLeds); break;
+                case ColorOrder::RBG: FastLED.addLeds<SK6812, LED1_DATA_PIN, RBG>(leds, gNumLeds); break;
+                case ColorOrder::GBR: FastLED.addLeds<SK6812, LED1_DATA_PIN, GBR>(leds, gNumLeds); break;
+                case ColorOrder::BRG: FastLED.addLeds<SK6812, LED1_DATA_PIN, BRG>(leds, gNumLeds); break;
+              }
+              break;
+            case LedType::WS2811_WHITE: FastLED.addLeds<WS2811, LED1_DATA_PIN, RGB>(leds, gNumLeds); break;
+            default: FastLED.addLeds<WS2812B, LED1_DATA_PIN, GRB>(leds, gNumLeds); break;
+          }
+        } else {
+          switch (gLedType) {
+            case LedType::WS2811:
+              switch (gColorOrder) {
+                case ColorOrder::RGB: FastLED.addLeds<WS2811, LED2_DATA_PIN, RGB>(leds, gNumLeds); break;
+                case ColorOrder::GRB: FastLED.addLeds<WS2811, LED2_DATA_PIN, GRB>(leds, gNumLeds); break;
+                case ColorOrder::BGR: FastLED.addLeds<WS2811, LED2_DATA_PIN, BGR>(leds, gNumLeds); break;
+                case ColorOrder::RBG: FastLED.addLeds<WS2811, LED2_DATA_PIN, RBG>(leds, gNumLeds); break;
+                case ColorOrder::GBR: FastLED.addLeds<WS2811, LED2_DATA_PIN, GBR>(leds, gNumLeds); break;
+                case ColorOrder::BRG: FastLED.addLeds<WS2811, LED2_DATA_PIN, BRG>(leds, gNumLeds); break;
+              }
+              break;
+            case LedType::WS2812:
+              switch (gColorOrder) {
+                case ColorOrder::RGB: FastLED.addLeds<WS2812, LED2_DATA_PIN, RGB>(leds, gNumLeds); break;
+                case ColorOrder::GRB: FastLED.addLeds<WS2812, LED2_DATA_PIN, GRB>(leds, gNumLeds); break;
+                case ColorOrder::BGR: FastLED.addLeds<WS2812, LED2_DATA_PIN, BGR>(leds, gNumLeds); break;
+                case ColorOrder::RBG: FastLED.addLeds<WS2812, LED2_DATA_PIN, RBG>(leds, gNumLeds); break;
+                case ColorOrder::GBR: FastLED.addLeds<WS2812, LED2_DATA_PIN, GBR>(leds, gNumLeds); break;
+                case ColorOrder::BRG: FastLED.addLeds<WS2812, LED2_DATA_PIN, BRG>(leds, gNumLeds); break;
+              }
+              break;
+            case LedType::WS2812B:
+              switch (gColorOrder) {
+                case ColorOrder::RGB: FastLED.addLeds<WS2812B, LED2_DATA_PIN, RGB>(leds, gNumLeds); break;
+                case ColorOrder::GRB: FastLED.addLeds<WS2812B, LED2_DATA_PIN, GRB>(leds, gNumLeds); break;
+                case ColorOrder::BGR: FastLED.addLeds<WS2812B, LED2_DATA_PIN, BGR>(leds, gNumLeds); break;
+                case ColorOrder::RBG: FastLED.addLeds<WS2812B, LED2_DATA_PIN, RBG>(leds, gNumLeds); break;
+                case ColorOrder::GBR: FastLED.addLeds<WS2812B, LED2_DATA_PIN, GBR>(leds, gNumLeds); break;
+                case ColorOrder::BRG: FastLED.addLeds<WS2812B, LED2_DATA_PIN, BRG>(leds, gNumLeds); break;
+              }
+              break;
+            case LedType::WS2813:
+              switch (gColorOrder) {
+                case ColorOrder::RGB: FastLED.addLeds<WS2813, LED2_DATA_PIN, RGB>(leds, gNumLeds); break;
+                case ColorOrder::GRB: FastLED.addLeds<WS2813, LED2_DATA_PIN, GRB>(leds, gNumLeds); break;
+                case ColorOrder::BGR: FastLED.addLeds<WS2813, LED2_DATA_PIN, BGR>(leds, gNumLeds); break;
+                case ColorOrder::RBG: FastLED.addLeds<WS2813, LED2_DATA_PIN, RBG>(leds, gNumLeds); break;
+                case ColorOrder::GBR: FastLED.addLeds<WS2813, LED2_DATA_PIN, GBR>(leds, gNumLeds); break;
+                case ColorOrder::BRG: FastLED.addLeds<WS2813, LED2_DATA_PIN, BRG>(leds, gNumLeds); break;
+              }
+              break;
+            case LedType::SK6812:
+              switch (gColorOrder) {
+                case ColorOrder::RGB: FastLED.addLeds<SK6812, LED2_DATA_PIN, RGB>(leds, gNumLeds); break;
+                case ColorOrder::GRB: FastLED.addLeds<SK6812, LED2_DATA_PIN, GRB>(leds, gNumLeds); break;
+                case ColorOrder::BGR: FastLED.addLeds<SK6812, LED2_DATA_PIN, BGR>(leds, gNumLeds); break;
+                case ColorOrder::RBG: FastLED.addLeds<SK6812, LED2_DATA_PIN, RBG>(leds, gNumLeds); break;
+                case ColorOrder::GBR: FastLED.addLeds<SK6812, LED2_DATA_PIN, GBR>(leds, gNumLeds); break;
+                case ColorOrder::BRG: FastLED.addLeds<SK6812, LED2_DATA_PIN, BRG>(leds, gNumLeds); break;
+              }
+              break;
+            case LedType::WS2811_WHITE: FastLED.addLeds<WS2811, LED2_DATA_PIN, RGB>(leds, gNumLeds); break;
+            default: FastLED.addLeds<WS2812B, LED2_DATA_PIN, GRB>(leds, gNumLeds); break;
+          }
+        }
+        if (DEBUG) Serial.printf("LED%d linija mode: %d LEDs\n", ledNum, gNumLeds);
+      } else if (gInstallationType == "stepenica") {
+        if (ledNum == 1) {
+          gBrojStepenica1 = ledObj["numSteps"] | 3;
+          gDefaultLedsPerStep1 = ledObj["defaultLedsPerStep"] | 30;
+          gVariableSteps1 = ledObj["variable"] | false;
+          if (gVariableSteps1 && !ledObj["stepLengths"].isNull()) {
+            JsonArray stepLengths = ledObj["stepLengths"];
+            if (gStepLengths1) { delete[] gStepLengths1; }
+            gStepLengths1 = new int[gBrojStepenica1];
+            for (int i = 0; i < gBrojStepenica1 && i < stepLengths.size(); i++) gStepLengths1[i] = stepLengths[i];
+          }
+          initStepSegments(1);
+        } else {
+          gBrojStepenica2 = ledObj["numSteps"] | 3;
+          gDefaultLedsPerStep2 = ledObj["defaultLedsPerStep"] | 30;
+          gVariableSteps2 = ledObj["variable"] | false;
+          if (gVariableSteps2 && !ledObj["stepLengths"].isNull()) {
+            JsonArray stepLengths = ledObj["stepLengths"];
+            if (gStepLengths2) { delete[] gStepLengths2; }
+            gStepLengths2 = new int[gBrojStepenica2];
+            for (int i = 0; i < gBrojStepenica2 && i < stepLengths.size(); i++) gStepLengths2[i] = stepLengths[i];
+          }
+          initStepSegments(2);
+        }
       }
-      switch (gLed1Type) {
-        case LedType::WS2811:
-          switch (gLed1ColorOrder) {
-            case ColorOrder::RGB: FastLED.addLeds<WS2811, LED1_DATA_PIN, RGB>(leds1, gNumLeds1); break;
-            case ColorOrder::GRB: FastLED.addLeds<WS2811, LED1_DATA_PIN, GRB>(leds1, gNumLeds1); break;
-            case ColorOrder::BGR: FastLED.addLeds<WS2811, LED1_DATA_PIN, BGR>(leds1, gNumLeds1); break;
-            case ColorOrder::RBG: FastLED.addLeds<WS2811, LED1_DATA_PIN, RBG>(leds1, gNumLeds1); break;
-            case ColorOrder::GBR: FastLED.addLeds<WS2811, LED1_DATA_PIN, GBR>(leds1, gNumLeds1); break;
-            case ColorOrder::BRG: FastLED.addLeds<WS2811, LED1_DATA_PIN, BRG>(leds1, gNumLeds1); break;
-          }
-          break;
-        case LedType::WS2812:
-          switch (gLed1ColorOrder) {
-            case ColorOrder::RGB: FastLED.addLeds<WS2812, LED1_DATA_PIN, RGB>(leds1, gNumLeds1); break;
-            case ColorOrder::GRB: FastLED.addLeds<WS2812, LED1_DATA_PIN, GRB>(leds1, gNumLeds1); break;
-            case ColorOrder::BGR: FastLED.addLeds<WS2812, LED1_DATA_PIN, BGR>(leds1, gNumLeds1); break;
-            case ColorOrder::RBG: FastLED.addLeds<WS2812, LED1_DATA_PIN, RBG>(leds1, gNumLeds1); break;
-            case ColorOrder::GBR: FastLED.addLeds<WS2812, LED1_DATA_PIN, GBR>(leds1, gNumLeds1); break;
-            case ColorOrder::BRG: FastLED.addLeds<WS2812, LED1_DATA_PIN, BRG>(leds1, gNumLeds1); break;
-          }
-          break;
-        case LedType::WS2812B:
-          switch (gLed1ColorOrder) {
-            case ColorOrder::RGB: FastLED.addLeds<WS2812B, LED1_DATA_PIN, RGB>(leds1, gNumLeds1); break;
-            case ColorOrder::GRB: FastLED.addLeds<WS2812B, LED1_DATA_PIN, GRB>(leds1, gNumLeds1); break;
-            case ColorOrder::BGR: FastLED.addLeds<WS2812B, LED1_DATA_PIN, BGR>(leds1, gNumLeds1); break;
-            case ColorOrder::RBG: FastLED.addLeds<WS2812B, LED1_DATA_PIN, RBG>(leds1, gNumLeds1); break;
-            case ColorOrder::GBR: FastLED.addLeds<WS2812B, LED1_DATA_PIN, GBR>(leds1, gNumLeds1); break;
-            case ColorOrder::BRG: FastLED.addLeds<WS2812B, LED1_DATA_PIN, BRG>(leds1, gNumLeds1); break;
-          }
-          break;
-        case LedType::WS2813:
-          switch (gLed1ColorOrder) {
-            case ColorOrder::RGB: FastLED.addLeds<WS2813, LED1_DATA_PIN, RGB>(leds1, gNumLeds1); break;
-            case ColorOrder::GRB: FastLED.addLeds<WS2813, LED1_DATA_PIN, GRB>(leds1, gNumLeds1); break;
-            case ColorOrder::BGR: FastLED.addLeds<WS2813, LED1_DATA_PIN, BGR>(leds1, gNumLeds1); break;
-            case ColorOrder::RBG: FastLED.addLeds<WS2813, LED1_DATA_PIN, RBG>(leds1, gNumLeds1); break;
-            case ColorOrder::GBR: FastLED.addLeds<WS2813, LED1_DATA_PIN, GBR>(leds1, gNumLeds1); break;
-            case ColorOrder::BRG: FastLED.addLeds<WS2813, LED1_DATA_PIN, BRG>(leds1, gNumLeds1); break;
-          }
-          break;
-        case LedType::SK6812:
-          switch (gLed1ColorOrder) {
-            case ColorOrder::RGB: FastLED.addLeds<SK6812, LED1_DATA_PIN, RGB>(leds1, gNumLeds1); break;
-            case ColorOrder::GRB: FastLED.addLeds<SK6812, LED1_DATA_PIN, GRB>(leds1, gNumLeds1); break;
-            case ColorOrder::BGR: FastLED.addLeds<SK6812, LED1_DATA_PIN, BGR>(leds1, gNumLeds1); break;
-            case ColorOrder::RBG: FastLED.addLeds<SK6812, LED1_DATA_PIN, RBG>(leds1, gNumLeds1); break;
-            case ColorOrder::GBR: FastLED.addLeds<SK6812, LED1_DATA_PIN, GBR>(leds1, gNumLeds1); break;
-            case ColorOrder::BRG: FastLED.addLeds<SK6812, LED1_DATA_PIN, BRG>(leds1, gNumLeds1); break;
-          }
-          break;
-        case LedType::WS2811_WHITE:
-          FastLED.addLeds<WS2811, LED1_DATA_PIN, RGB>(leds1, gNumLeds1);
-          break;
-        default:
-          FastLED.addLeds<WS2812B, LED1_DATA_PIN, GRB>(leds1, gNumLeds1);
-          break;
-      }
-      if (DEBUG) Serial.printf("LED1 linija mode: %d LEDs\n", gNumLeds1);
-    } else if (gInstallationType1 == "stepenica") {
-      gBrojStepenica1 = configDoc["led1"]["numSteps"] | 3;
-      gDefaultLedsPerStep1 = configDoc["led1"]["defaultLedsPerStep"] | 30;
-      gVariableSteps1 = configDoc["led1"]["variable"] | false;
-      if (gVariableSteps1 && !configDoc["led1"]["stepLengths"].isNull()) {
-        JsonArray stepLengths = configDoc["led1"]["stepLengths"];
-        if (gStepLengths1) { delete[] gStepLengths1; gStepLengths1 = nullptr; }
-        gStepLengths1 = new int[gBrojStepenica1];
-        for (int i = 0; i < gBrojStepenica1 && i < stepLengths.size(); i++) gStepLengths1[i] = stepLengths[i].as<int>();
-      }
-      initStepSegments(1);
     }
-  }
 
-  gRotacijaStepenica1 = configDoc["led1"]["rotation"] | false;
-  gEfektKreniOd1 = configDoc["led1"]["efektKreniOd"] | "sredina";
-  gStepeniceMode1 = configDoc["led1"]["stepMode"] | "allAtOnce";
-  gEffect1 = (configDoc["led1"]["effect"] == "solid") ? 0 : (configDoc["led1"]["effect"] == "confetti") ? 1
-                                                 : (configDoc["led1"]["effect"] == "rainbow") ? 2
-                                                 : (configDoc["led1"]["effect"] == "meteor") ? 3
-                                                 : (configDoc["led1"]["effect"] == "fade") ? 4
-                                                 : (configDoc["led1"]["effect"] == "fire") ? 5
-                                                 : (configDoc["led1"]["effect"] == "lightning") ? 6 : 0;
-
-  String colorStr1 = configDoc["led1"]["color"] | "#002aff";
-  if (colorStr1.length() == 7) {
-    gColorR1 = strtol(colorStr1.substring(1, 3).c_str(), NULL, 16);
-    gColorG1 = strtol(colorStr1.substring(3, 5).c_str(), NULL, 16);
-    gColorB1 = strtol(colorStr1.substring(5, 7).c_str(), NULL, 16);
-  }
-  gWipeInSpeedMs1 = configDoc["led1"]["wipeSpeed"] | 50;
-  gWipeOutSpeedMs1 = configDoc["led1"]["wipeSpeed"] | 50;
-  gOnTimeSec1 = configDoc["led1"]["onTime"] | 2;
-  gBrightness1 = configDoc["led1"]["brightness"] | 100;
-
-  String led2TypeStr = configDoc["led2"]["type"] | "ws2812b";
-  if (led2TypeStr == "off" || led2TypeStr == "") {
-    gLed2Type = LedType::NONE;
-    if (leds2) { delete[] leds2; leds2 = nullptr; }
-    gNumLeds2 = 0;
-    gTotalLedsStepenice2 = 0;
-    if (stepsArray2) { delete[] stepsArray2; stepsArray2 = nullptr; }
-    if (DEBUG) Serial.println("LED2 set to OFF");
-  } else {
-    gLed2Type = (led2TypeStr == "ws2811") ? LedType::WS2811 : (led2TypeStr == "ws2812") ? LedType::WS2812
-                                               : (led2TypeStr == "ws2812b") ? LedType::WS2812B
-                                               : (led2TypeStr == "ws2813") ? LedType::WS2813
-                                               : (led2TypeStr == "sk6812") ? LedType::SK6812
-                                               : (led2TypeStr == "ws2811_white") ? LedType::WS2811_WHITE
-                                               : LedType::WS2812B;
-
-    String led2ColorOrderStr = configDoc["led2"]["colorOrder"] | "GRB";
-    gLed2ColorOrder = (led2ColorOrderStr == "RGB") ? ColorOrder::RGB : (led2ColorOrderStr == "GRB") ? ColorOrder::GRB
-                                                    : (led2ColorOrderStr == "BGR") ? ColorOrder::BGR
-                                                    : (led2ColorOrderStr == "RBG") ? ColorOrder::RBG
-                                                    : (led2ColorOrderStr == "GBR") ? ColorOrder::GBR
-                                                    : (led2ColorOrderStr == "BRG") ? ColorOrder::BRG
-                                                    : ColorOrder::GRB;
-
-    gInstallationType2 = configDoc["led2"]["mode"] | "linija";
-    if (gInstallationType2 == "linija") {
-      gNumLeds2 = configDoc["led2"]["linijaLEDCount"] | 35;
-      if (leds2) { delete[] leds2; leds2 = nullptr; }
-      leds2 = new CRGB[gNumLeds2];
-      if (!leds2) {
-        if (DEBUG) Serial.println("Failed to allocate leds2 for linija mode");
-        return;
+    if (ledNum == 1) {
+      gRotacijaStepenica1 = ledObj["rotation"] | false;
+      gEfektKreniOd1 = ledObj["efektKreniOd"] | "sredina";
+      gStepeniceMode1 = ledObj["stepMode"] | "allAtOnce";
+      gEffect1 = (ledObj["effect"] == "solid") ? 0 : (ledObj["effect"] == "confetti") ? 1 :
+                 (ledObj["effect"] == "rainbow") ? 2 : (ledObj["effect"] == "meteor") ? 3 :
+                 (ledObj["effect"] == "fade") ? 4 : (ledObj["effect"] == "fire") ? 5 :
+                 (ledObj["effect"] == "lightning") ? 6 : 0;
+      String colorStr = ledObj["color"] | "#002aff";
+      if (colorStr.length() == 7) {
+        gColorR1 = strtol(colorStr.substring(1, 3).c_str(), NULL, 16);
+        gColorG1 = strtol(colorStr.substring(3, 5).c_str(), NULL, 16);
+        gColorB1 = strtol(colorStr.substring(5, 7).c_str(), NULL, 16);
       }
-      switch (gLed2Type) {
-        case LedType::WS2811:
-          switch (gLed2ColorOrder) {
-            case ColorOrder::RGB: FastLED.addLeds<WS2811, LED2_DATA_PIN, RGB>(leds2, gNumLeds2); break;
-            case ColorOrder::GRB: FastLED.addLeds<WS2811, LED2_DATA_PIN, GRB>(leds2, gNumLeds2); break;
-            case ColorOrder::BGR: FastLED.addLeds<WS2811, LED2_DATA_PIN, BGR>(leds2, gNumLeds2); break;
-            case ColorOrder::RBG: FastLED.addLeds<WS2811, LED2_DATA_PIN, RBG>(leds2, gNumLeds2); break;
-            case ColorOrder::GBR: FastLED.addLeds<WS2811, LED2_DATA_PIN, GBR>(leds2, gNumLeds2); break;
-            case ColorOrder::BRG: FastLED.addLeds<WS2811, LED2_DATA_PIN, BRG>(leds2, gNumLeds2); break;
-          }
-          break;
-        case LedType::WS2812:
-          switch (gLed2ColorOrder) {
-            case ColorOrder::RGB: FastLED.addLeds<WS2812, LED2_DATA_PIN, RGB>(leds2, gNumLeds2); break;
-            case ColorOrder::GRB: FastLED.addLeds<WS2812, LED2_DATA_PIN, GRB>(leds2, gNumLeds2); break;
-            case ColorOrder::BGR: FastLED.addLeds<WS2812, LED2_DATA_PIN, BGR>(leds2, gNumLeds2); break;
-            case ColorOrder::RBG: FastLED.addLeds<WS2812, LED2_DATA_PIN, RBG>(leds2, gNumLeds2); break;
-            case ColorOrder::GBR: FastLED.addLeds<WS2812, LED2_DATA_PIN, GBR>(leds2, gNumLeds2); break;
-            case ColorOrder::BRG: FastLED.addLeds<WS2812, LED2_DATA_PIN, BRG>(leds2, gNumLeds2); break;
-          }
-          break;
-        case LedType::WS2812B:
-          switch (gLed2ColorOrder) {
-            case ColorOrder::RGB: FastLED.addLeds<WS2812B, LED2_DATA_PIN, RGB>(leds2, gNumLeds2); break;
-            case ColorOrder::GRB: FastLED.addLeds<WS2812B, LED2_DATA_PIN, GRB>(leds2, gNumLeds2); break;
-            case ColorOrder::BGR: FastLED.addLeds<WS2812B, LED2_DATA_PIN, BGR>(leds2, gNumLeds2); break;
-            case ColorOrder::RBG: FastLED.addLeds<WS2812B, LED2_DATA_PIN, RBG>(leds2, gNumLeds2); break;
-            case ColorOrder::GBR: FastLED.addLeds<WS2812B, LED2_DATA_PIN, GBR>(leds2, gNumLeds2); break;
-            case ColorOrder::BRG: FastLED.addLeds<WS2812B, LED2_DATA_PIN, BRG>(leds2, gNumLeds2); break;
-          }
-          break;
-        case LedType::WS2813:
-          switch (gLed2ColorOrder) {
-            case ColorOrder::RGB: FastLED.addLeds<WS2813, LED2_DATA_PIN, RGB>(leds2, gNumLeds2); break;
-            case ColorOrder::GRB: FastLED.addLeds<WS2813, LED2_DATA_PIN, GRB>(leds2, gNumLeds2); break;
-            case ColorOrder::BGR: FastLED.addLeds<WS2813, LED2_DATA_PIN, BGR>(leds2, gNumLeds2); break;
-            case ColorOrder::RBG: FastLED.addLeds<WS2813, LED2_DATA_PIN, RBG>(leds2, gNumLeds2); break;
-            case ColorOrder::GBR: FastLED.addLeds<WS2813, LED2_DATA_PIN, GBR>(leds2, gNumLeds2); break;
-            case ColorOrder::BRG: FastLED.addLeds<WS2813, LED2_DATA_PIN, BRG>(leds2, gNumLeds2); break;
-          }
-          break;
-        case LedType::SK6812:
-          switch (gLed2ColorOrder) {
-            case ColorOrder::RGB: FastLED.addLeds<SK6812, LED2_DATA_PIN, RGB>(leds2, gNumLeds2); break;
-            case ColorOrder::GRB: FastLED.addLeds<SK6812, LED2_DATA_PIN, GRB>(leds2, gNumLeds2); break;
-            case ColorOrder::BGR: FastLED.addLeds<SK6812, LED2_DATA_PIN, BGR>(leds2, gNumLeds2); break;
-            case ColorOrder::RBG: FastLED.addLeds<SK6812, LED2_DATA_PIN, RBG>(leds2, gNumLeds2); break;
-            case ColorOrder::GBR: FastLED.addLeds<SK6812, LED2_DATA_PIN, GBR>(leds2, gNumLeds2); break;
-            case ColorOrder::BRG: FastLED.addLeds<SK6812, LED2_DATA_PIN, BRG>(leds2, gNumLeds2); break;
-          }
-          break;
-        case LedType::WS2811_WHITE:
-          FastLED.addLeds<WS2811, LED2_DATA_PIN, RGB>(leds2, gNumLeds2);
-          break;
-        default:
-          FastLED.addLeds<WS2812B, LED2_DATA_PIN, GRB>(leds2, gNumLeds2);
-          break;
+      gWipeInSpeedMs1 = gWipeOutSpeedMs1 = ledObj["wipeSpeed"] | 50;
+      gOnTimeSec1 = ledObj["onTime"] | 2;
+      gBrightness1 = ledObj["brightness"] | 100;
+    } else {
+      gRotacijaStepenica2 = ledObj["rotation"] | false;
+      gEfektKreniOd2 = ledObj["efektKreniOd"] | "sredina";
+      gStepeniceMode2 = ledObj["stepMode"] | "allAtOnce";
+      gEffect2 = (ledObj["effect"] == "solid") ? 0 : (ledObj["effect"] == "confetti") ? 1 :
+                 (ledObj["effect"] == "rainbow") ? 2 : (ledObj["effect"] == "meteor") ? 3 :
+                 (ledObj["effect"] == "fade") ? 4 : (ledObj["effect"] == "fire") ? 5 :
+                 (ledObj["effect"] == "lightning") ? 6 : 0;
+      String colorStr = ledObj["color"] | "#002aff";
+      if (colorStr.length() == 7) {
+        gColorR2 = strtol(colorStr.substring(1, 3).c_str(), NULL, 16);
+        gColorG2 = strtol(colorStr.substring(3, 5).c_str(), NULL, 16);
+        gColorB2 = strtol(colorStr.substring(5, 7).c_str(), NULL, 16);
       }
-      if (DEBUG) Serial.printf("LED2 linija mode: %d LEDs\n", gNumLeds2);
-    } else if (gInstallationType2 == "stepenica") {
-      gBrojStepenica2 = configDoc["led2"]["numSteps"] | 3;
-      gDefaultLedsPerStep2 = configDoc["led2"]["defaultLedsPerStep"] | 30;
-      gVariableSteps2 = configDoc["led2"]["variable"] | false;
-      if (gVariableSteps2 && !configDoc["led2"]["stepLengths"].isNull()) {
-        JsonArray stepLengths = configDoc["led2"]["stepLengths"];
-        if (gStepLengths2) { delete[] gStepLengths2; gStepLengths2 = nullptr; }
-        gStepLengths2 = new int[gBrojStepenica2];
-        for (int i = 0; i < gBrojStepenica2 && i < stepLengths.size(); i++) gStepLengths2[i] = stepLengths[i].as<int>();
-      }
-      initStepSegments(2);
+      gWipeInSpeedMs2 = gWipeOutSpeedMs2 = ledObj["wipeSpeed"] | 50;
+      gOnTimeSec2 = ledObj["onTime"] | 2;
+      gBrightness2 = ledObj["brightness"] | 100;
     }
-  }
+  };
 
-  gRotacijaStepenica2 = configDoc["led2"]["rotation"] | false;
-  gEfektKreniOd2 = configDoc["led2"]["efektKreniOd"] | "sredina";
-  gStepeniceMode2 = configDoc["led2"]["stepMode"] | "allAtOnce";
-  gEffect2 = (configDoc["led2"]["effect"] == "solid") ? 0 : (configDoc["led2"]["effect"] == "confetti") ? 1
-                                                 : (configDoc["led2"]["effect"] == "rainbow") ? 2
-                                                 : (configDoc["led2"]["effect"] == "meteor") ? 3
-                                                 : (configDoc["led2"]["effect"] == "fade") ? 4
-                                                 : (configDoc["led2"]["effect"] == "fire") ? 5
-                                                 : (configDoc["led2"]["effect"] == "lightning") ? 6 : 0;
-
-  String colorStr2 = configDoc["led2"]["color"] | "#002aff";
-  if (colorStr2.length() == 7) {
-    gColorR2 = strtol(colorStr2.substring(1, 3).c_str(), NULL, 16);
-    gColorG2 = strtol(colorStr2.substring(3, 5).c_str(), NULL, 16);
-    gColorB2 = strtol(colorStr2.substring(5, 7).c_str(), NULL, 16);
-  }
-  gWipeInSpeedMs2 = configDoc["led2"]["wipeSpeed"] | 50;
-  gWipeOutSpeedMs2 = configDoc["led2"]["wipeSpeed"] | 50;
-  gOnTimeSec2 = configDoc["led2"]["onTime"] | 2;
-  gBrightness2 = configDoc["led2"]["brightness"] | 100;
+  applyLedConfig(1);
+  applyLedConfig(2);
 
   maxCurrent = configDoc["maxCurrent"] | 2000;
   gMainSwitch = configDoc["mainSwitch"] | "both";
@@ -1281,17 +1023,7 @@ void applyConfigToLEDStrips() {
   if (DEBUG) Serial.printf("Config applied: mainSwitch = %s\n", gMainSwitch.c_str());
 }
 
-void handleRoot() {
-  String html = "<html><head><style>"
-                "body { font-family: Arial, sans-serif; background-color: #f0f0f0; text-align: center; }"
-                "h1 { color: #333; }"
-                "input, button { padding: 10px; margin: 5px; }"
-                "</style></head><body>"
-                "<h1>StairLight Configuration</h1>"
-                "<p><a href='/config'>Device Settings</a></p>"
-                "</body></html>";
-  server.send(200, "text/html", html);
-}
+void handleRoot() { handleFileRead("/index.html"); }
 
 void handleGetConfig() {
   String output;
@@ -1300,24 +1032,23 @@ void handleGetConfig() {
 }
 
 void handleSaveConfig() {
-  if (server.hasArg("plain")) {
-    String json = server.arg("plain");
-    DeserializationError error = deserializeJson(configDoc, json);
-    if (error) {
-      server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-      return;
-    }
-    saveConfig();
-    applyConfigToLEDStrips();
-    server.send(200, "application/json", "{\"status\":\"ok\"}");
-    apStartTime = millis();
-  } else {
+  if (!server.hasArg("plain")) {
     server.send(400, "application/json", "{\"error\":\"No data received\"}");
+    return;
   }
+  DeserializationError error = deserializeJson(configDoc, server.arg("plain"));
+  if (error) {
+    server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+    return;
+  }
+  saveConfig();
+  applyConfigToLEDStrips();
+  server.send(200, "application/json", "{\"status\":\"ok\"}");
+  apStartTime = millis();
 }
 
 void setup() {
-  Serial.begin(115200);
+  if (DEBUG) Serial.begin(115200);
   delay(100);
 
   esp_task_wdt_init(&wdt_config);
@@ -1357,6 +1088,7 @@ void setup() {
 void loop() {
   server.handleClient();
   esp_task_wdt_reset();
+  handleIrSensors();
 
   bool reading = digitalRead(MAIN_SWITCH_PIN);
   static unsigned long buttonPressStart = 0;
@@ -1367,55 +1099,40 @@ void loop() {
     gLastButtonState = reading;
 
     if (reading == LOW) {
-      if (!isAPMode) {
-        buttonPressStart = millis();
-        apActivated = false;
-      }
-    } else {
-      buttonPressStart = 0;
-      if (!gManualOverride) {
-        gManualOverride = true;
-        if (DEBUG) Serial.println("Manual override enabled");
+      buttonPressStart = millis();
+      apActivated = false;
+    } else if (buttonPressStart) {
+      unsigned long pressDuration = millis() - buttonPressStart;
+      if (pressDuration >= 6000) {
+        if (!isAPMode) {
+          if (DEBUG) Serial.println("Activating AP mode...");
+          WiFi.softAP("StairLight_AP", "12345678");
+          server.begin();
+          isAPMode = true;
+          apStartTime = millis();
+          signalAPActive();
+          if (DEBUG) Serial.println("AP activated at 192.168.4.1");
+          apActivated = true;
+        }
       } else {
-        gManualOverride = false;
-        if (DEBUG) Serial.println("Manual override disabled");
-        track1.state = TrackState::OFF;
-        track2.state = TrackState::OFF;
-        if (stepsArray1) {
-          for (int i = 0; i < gBrojStepenica1; i++) stepsArray1[i].state = TrackState::OFF;
+        gManualOverride = !gManualOverride;
+        if (DEBUG) Serial.println("Manual override: " + String(gManualOverride ? "ON" : "OFF"));
+        if (!gManualOverride) {
+          track1.state = track2.state = TrackState::OFF;
+          if (stepsArray1) for (int i = 0; i < gBrojStepenica1; i++) stepsArray1[i].state = TrackState::OFF;
+          if (stepsArray2) for (int i = 0; i < gBrojStepenica2; i++) stepsArray2[i].state = TrackState::OFF;
+          if (leds1 && gLed1Type != LedType::NONE) fill_solid(leds1, gInstallationType1 == "linija" ? gNumLeds1 : gTotalLedsStepenice1, CRGB::Black);
+          if (leds2 && gLed2Type != LedType::NONE) fill_solid(leds2, gInstallationType2 == "linija" ? gNumLeds2 : gTotalLedsStepenice2, CRGB::Black);
+          FastLED.show();
+          if (DEBUG) Serial.println("LEDs cleared");
         }
-        if (stepsArray2) {
-          for (int i = 0; i < gBrojStepenica2; i++) stepsArray2[i].state = TrackState::OFF;
-        }
-        if (leds1 && gLed1Type != LedType::NONE) {
-          for (int i = 0; i < (gInstallationType1 == "linija" ? gNumLeds1 : gTotalLedsStepenice1); i++) leds1[i] = CRGB::Black;
-          if (DEBUG) Serial.println("LED1 cleared");
-        }
-        if (leds2 && gLed2Type != LedType::NONE) {
-          for (int i = 0; i < (gInstallationType2 == "linija" ? gNumLeds2 : gTotalLedsStepenice2); i++) leds2[i] = CRGB::Black;
-          if (DEBUG) Serial.println("LED2 cleared");
-        }
-        FastLED.show();
       }
-    }
-  }
-
-  if (reading == LOW && !isAPMode && buttonPressStart > 0 && !apActivated) {
-    unsigned long pressDuration = millis() - buttonPressStart;
-    if (pressDuration >= 6000) {
-      if (DEBUG) Serial.println("Activating AP mode...");
-      WiFi.softAP("StairLight_AP", "12345678");
-      server.begin();
-      isAPMode = true;
-      apStartTime = millis();
-      signalAPActive();
-      apActivated = true;
-      if (DEBUG) Serial.println("AP activated after 6 seconds at 192.168.4.1");
+      buttonPressStart = 0;
     }
   }
 
   if (isAPMode && (millis() - apStartTime >= AP_TIMEOUT_MS)) {
-    if (DEBUG) Serial.println("AP timeout reached, shutting down AP and restarting ESP32...");
+    if (DEBUG) Serial.println("AP timeout, restarting ESP32...");
     WiFi.softAPdisconnect(true);
     server.close();
     isAPMode = false;
@@ -1424,21 +1141,14 @@ void loop() {
 
   if (gManualOverride) {
     if ((gMainSwitch == "both" || gMainSwitch == "led1") && gLed1Type != LedType::NONE) {
-      if (gInstallationType1 == "linija" && leds1) {
-        applyGlobalEffect(leds1, gNumLeds1, true);
-      } else if (gTotalLedsStepenice1 > 0 && leds1) {
-        applyGlobalEffect(leds1, gTotalLedsStepenice1, true);
-      }
+      if (gInstallationType1 == "linija" && leds1) applyGlobalEffect(leds1, gNumLeds1, true);
+      else if (gTotalLedsStepenice1 > 0 && leds1) applyGlobalEffect(leds1, gTotalLedsStepenice1, true);
     }
     if ((gMainSwitch == "both" || gMainSwitch == "led2") && gLed2Type != LedType::NONE) {
-      if (gInstallationType2 == "linija" && leds2) {
-        applyGlobalEffect(leds2, gNumLeds2, false);
-      } else if (gTotalLedsStepenice2 > 0 && leds2) {
-        applyGlobalEffect(leds2, gTotalLedsStepenice2, false);
-      }
+      if (gInstallationType2 == "linija" && leds2) applyGlobalEffect(leds2, gNumLeds2, false);
+      else if (gTotalLedsStepenice2 > 0 && leds2) applyGlobalEffect(leds2, gTotalLedsStepenice2, false);
     }
   } else {
-    handleIrSensors();
     if ((gMainSwitch == "both" || gMainSwitch == "led1") && gLed1Type != LedType::NONE) {
       if (gInstallationType1 == "stepenica" && gTotalLedsStepenice1 > 0) {
         if (gStepeniceMode1 == "sequence") updateSequence(1);
