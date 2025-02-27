@@ -1201,7 +1201,27 @@ void loop() {
       dnsServer.start(53, "*", WiFi.softAPIP());
       isAPMode = true;
       apStartTime = millis();
-      signalAPActive();
+
+      // Eksplicitno treptanje prvih 10 LED-ica 3 puta
+      for (int i = 0; i < 3; i++) {
+        if (leds1 && gLed1Type != LedType::NONE) {
+          for (int j = 0; j < min(10, gNumLeds1); j++) leds1[j] = CRGB::White;
+        }
+        if (leds2 && gLed2Type != LedType::NONE) {
+          for (int j = 0; j < min(10, gNumLeds2); j++) leds2[j] = CRGB::White;
+        }
+        FastLED.show();
+        delay(200);
+        if (leds1 && gLed1Type != LedType::NONE) {
+          for (int j = 0; j < min(10, gNumLeds1); j++) leds1[j] = CRGB::Black;
+        }
+        if (leds2 && gLed2Type != LedType::NONE) {
+          for (int j = 0; j < min(10, gNumLeds2); j++) leds2[j] = CRGB::Black;
+        }
+        FastLED.show();
+        delay(200);
+      }
+
       if (DEBUG) Serial.println("AP activated at 192.168.4.1");
     }
   }
